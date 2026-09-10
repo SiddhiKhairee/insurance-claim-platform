@@ -1,0 +1,51 @@
+services:
+  redpanda:
+    image: redpandadata/redpanda:latest
+    command:
+      - redpanda start
+      - --smp 1
+      - --overprovisioned
+      - --kafka-addr PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:9092
+    ports:
+      - "9092:9092"
+      - "9644:9644"
+
+  redpanda-console:
+    image: redpandadata/console:latest
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redpanda
+
+  enrollment-service:
+    build: ../services/enrollment-service
+    ports:
+      - "8081:8081"
+
+  claims-intake-service:
+    build: ../services/claims-intake-service
+    ports:
+      - "8082:8082"
+
+  adjudication-service:
+    build: ../services/adjudication-service
+    ports:
+      - "8083:8083"
+
+  notification-service:
+    build: ../services/notification-service
+    ports:
+      - "8084:8084"
+
+  rag-assistant-service:
+    build: ../services/rag-assistant-service
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ../frontend
+    ports:
+      - "3000:80"
