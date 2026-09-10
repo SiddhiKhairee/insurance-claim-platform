@@ -265,12 +265,12 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
   - [x] `docker-compose.yml` builds and starts (even if services are empty stubs)
   - [x] `main` branch protection configured per §2.1 (PR required, status checks required, administrators included)
   - [x] CI workflow (§9.1) created and runs green via a PR from a `phase-0-scaffold` branch — confirms the PR-only flow actually works before any real code depends on it
-- [ ] **Phase 1** — MongoDB Atlas cluster live, collections created, Enrollment Service CRUD + seeded synthetic data
-  - [ ] GitHub issue filed for Phase 1
-  - [ ] Atlas M0 cluster created, network access + DB user configured
-  - [ ] Collections created (`enrollments`, `claims`, `policy_documents`, `notifications_log`)
-  - [ ] Enrollment Service CRUD endpoints working against Atlas
-  - [ ] Synthetic enrollment data seeded
+- [x] **Phase 1** — MongoDB Atlas cluster live, collections created, Enrollment Service CRUD + seeded synthetic data
+  - [x] GitHub issue filed for Phase 1
+  - [x] Atlas M0 cluster created, network access + DB user configured
+  - [x] Collections created (`enrollments`, `claims`, `policy_documents`, `notifications_log`)
+  - [x] Enrollment Service CRUD endpoints working against Atlas
+  - [x] Synthetic enrollment data seeded
 - [ ] **Phase 2** — Claims Intake Service + Redpanda wired up, `claim.submitted` flowing, verified in Redpanda Console
   - [ ] GitHub issue filed for Phase 2
   - [ ] Redpanda + Redpanda Console running in docker-compose
@@ -341,4 +341,5 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 - **2026-09-10** — Adopted PR-per-phase workflow: added §2.1 (Git workflow & branch protection — no direct commits to `main`, one branch per phase, PR + passing CI required to merge) and §9.1 (detailed GitHub Actions CI/CD pipeline, whose jobs become the required status checks). Phase 0's checklist updated to include configuring branch protection and verifying the CI workflow via an actual PR before later phases depend on it.
 - **2026-09-10** — Clarified §2.1: Claude Code opens PRs but never merges them — merging is always a manual step the repo owner performs after reviewing the diff and confirming CI is green. Mirrored in `CLAUDE.md`.
 - **2026-09-10** — Added dev environment note to §2: develop inside WSL2/Ubuntu (with VS Code Remote-WSL), not native Windows — driven by Testcontainers/Docker-socket and volume-mount performance considerations.
+- **2026-09-10** — Phase 1 implemented on branch `phase-1-enrollment-service` (issue #3). Atlas M0 cluster (`claims-pipeline`, AWS us-east-1), network access, and app DB user (`claimspipelineapp`) were set up by the repo owner beforehand. Added `spring-boot-starter-data-mongodb` + `spring-boot-starter-validation` to `enrollment-service`; new `Enrollment` document model, `EnrollmentRepository`, and `EnrollmentController` (`POST /enrollments`, `GET /enrollments/{employeeId}`). Verified live against the real Atlas cluster (not just unit-tested): the container connected to Atlas replica set `atlas-pl3mbl-shard-0` and discovered the primary; `POST /enrollments` returned 201 with a Mongo-generated id, `GET /enrollments/{employeeId}` round-tripped it, an empty-body POST correctly returned 400. Ran `data/synthetic/init_collections.py` — created the 3 collections nothing wrote to yet (`claims`, `policy_documents`, `notifications_log`); `enrollments` already existed from the CRUD check. Ran `data/synthetic/seed_enrollments.py --count 30` against the running service — confirmed via a direct Atlas query (30 documents) and an API round-trip on one seeded `employeeId` (`EMP-25349`). A manual verification document created during CRUD testing was deleted afterward so `enrollments` holds only the 30 genuine synthetic records.
 - **2026-09-10** — Phase 0 implemented on branch `phase-0-scaffold` (issue #1): repo folder structure scaffolded per §2 (stub Spring Boot services, FastAPI stub, Vite React stub, `infra/docker-compose.yml` + `docker-compose.prod.yml`, `.github/workflows/ci.yml`). Verified locally: `docker compose -f infra/docker-compose.yml up -d` starts all 7 containers (redpanda, redpanda-console, 4 Java services, rag-assistant-service, frontend) — enrollment-service `/actuator/health` returned 200, frontend and redpanda-console both returned 200. All CI-equivalent checks (checkstyle, `mvn test` per Java service, ruff, pytest, eslint, vitest, and all 6 `docker build`s) passed locally before push. PR #2 opened against `main`; all 12 CI jobs passed. Branch protection applied on `main`: PR required, all 12 CI jobs required as status checks, branches must be up to date, administrators included, 0 required approvals (solo repo), force-push and branch deletion disabled.
