@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Checkstyle (Java services)
+        run: |
+          for svc in enrollment-service claims-intake-service adjudication-service notification-service; do
+            (cd services/$svc && mvn -q -B checkstyle:check)
+          done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: ESLint (frontend)
+        working-directory: frontend
+        run: |
+          npm install
+          npm run lint
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Ruff (rag-assistant-service)
+        working-directory: services/rag-assistant-service
+        run: |
+          pip install ruff
+          ruff check .
+
+  test-java:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - enrollment-service
+          - claims-intake-service
+          - adjudication-service
+          - notification-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: mvn test
+        working-directory: services/${{ matrix.service }}
+        run: mvn -B test
+
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        working-directory: services/rag-assistant-service
+        run: pip install -r requirements-dev.txt
+      - name: pytest
+        working-directory: services/rag-assistant-service
+        run: pytest
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install deps
+        working-directory: frontend
+        run: npm install
+      - name: vitest
+        working-directory: frontend
+        run: npm test
+
+  build-docker:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - services/enrollment-service
+          - services/claims-intake-service
+          - services/adjudication-service
+          - services/notification-service
+          - services/rag-assistant-service
+          - frontend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t ci-image:latest ${{ matrix.service }}
