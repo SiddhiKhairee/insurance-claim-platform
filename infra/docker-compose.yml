@@ -10,6 +10,8 @@ services:
     ports:
       - "9092:9092"
       - "9644:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
 
   redpanda-console:
     image: redpandadata/console:latest
@@ -29,6 +31,12 @@ services:
 
   claims-intake-service:
     build: ../services/claims-intake-service
+    env_file:
+      - ../.env
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    depends_on:
+      - redpanda
     ports:
       - "8082:8082"
 
@@ -51,3 +59,6 @@ services:
     build: ../frontend
     ports:
       - "3000:80"
+
+volumes:
+  redpanda-data:
