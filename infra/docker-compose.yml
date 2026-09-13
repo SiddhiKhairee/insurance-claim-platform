@@ -55,6 +55,12 @@ services:
 
   notification-service:
     build: ../services/notification-service
+    env_file:
+      - ../.env
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    depends_on:
+      - redpanda
     ports:
       - "8084:8084"
 

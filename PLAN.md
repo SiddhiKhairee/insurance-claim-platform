@@ -282,9 +282,9 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
   - [x] Consumes `claim.submitted`, publishes `claim.adjudicated`
   - [x] Labeled synthetic claim set built and run through the engine
   - [x] Precision/recall logged in §11 — real numbers, not estimates
-- [ ] **Phase 4** — Notification Service consuming and logging
-  - [ ] GitHub issue filed for Phase 4
-  - [ ] Consumes `claim.adjudicated`, writes to `notifications_log`
+- [x] **Phase 4** — Notification Service consuming and logging
+  - [x] GitHub issue filed for Phase 4
+  - [x] Consumes `claim.adjudicated`, writes to `notifications_log`
 - [ ] **Phase 5** — React frontend: submit form + live claim-status view
   - [ ] GitHub issue filed for Phase 5
   - [ ] Claim submission form wired to Claims Intake Service
@@ -344,6 +344,41 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
 
+- **2026-09-13** — Phase 4 implemented on branch `phase-4-notification-service` (issue #9).
+  Added `spring-boot-starter-data-mongodb`, `spring-kafka`, and Testcontainers
+  (`junit-jupiter`, `kafka`, `mongodb`) to `notification-service`. New classes:
+  `NotificationLog`/`NotificationLogRepository` (exact §3 schema: `claimId, channel,
+  sentAt, message`), `ClaimAdjudicatedEvent` (mirrors adjudication-service's producer
+  shape), `NotificationConsumer` (`@KafkaListener` on `claim.adjudicated`, writes a
+  `notifications_log` document and logs one INFO line simulating the send — no real
+  email/SMS, per §5.4), and `KafkaConsumerConfig` (second Kafka consumer in the repo,
+  copied unchanged from adjudication-service's pattern: `ErrorHandlingDeserializer` +
+  `JsonDeserializer` with `use.type.headers=false`/`value.default.type` since producers
+  never add a `__TypeId__` header, `DeadLetterPublishingRecoverer` → `claim.adjudicated.DLT`).
+
+  Scope decisions: no REST endpoint this phase (consume-only, per §5.4); `channel`
+  hardcoded to `"EMAIL"` (only one simulated channel, no invented selection logic);
+  notification message built only from the fields `claim.adjudicated` actually carries
+  (`claimId`, `status`, `decisionReason`) — no extra REST call to enrich it with
+  `planType`/`employeeId`. **Known limitation, stated deliberately**: no deduplication on
+  notification writes — Kafka's at-least-once delivery could occasionally produce a
+  duplicate `notifications_log` entry, an accepted simplification for a simulated log.
+
+  Testing: `NotificationConsumerTest` (JUnit 5 + Mockito, approved and denied cases) and
+  one Testcontainers integration test (`NotificationIntegrationTest`, real Kafka + Mongo)
+  proving the consume→write pipeline — all passed, checkstyle clean.
+
+  Verified live against the real running stack: rebuilt and restarted
+  `notification-service` in `infra/docker-compose.yml` (added `KAFKA_BROKERS`,
+  `depends_on: redpanda`). Seeded a real enrollment, submitted one claim that got
+  approved and one that got denied (no enrollment), confirmed via Mongo that both
+  produced correct `notifications_log` documents (`channel: "EMAIL"`, populated
+  `message`, recent `sentAt`) and confirmed the matching simulated-send INFO log lines.
+  Published a deliberately malformed message directly to `claim.adjudicated` and
+  confirmed it landed on `claim.adjudicated.DLT`, with the listener staying alive
+  (health check + normal request processing continued afterward). All test
+  claims/notifications/enrollments created during manual verification were deleted from
+  Atlas afterward.
 - **2026-09-13** — Phase 3 implemented on branch `phase-3-adjudication-rule-engine` (issue #7).
   Added `spring-boot-starter-data-mongodb`, `spring-kafka`, Testcontainers (`junit-jupiter`,
   `kafka`, `mongodb`), and Spock/Groovy (`spock-core` 2.3-groovy-4.0 + `gmavenplus-plugin`) to
