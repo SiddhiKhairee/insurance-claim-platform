@@ -276,12 +276,12 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
   - [x] Redpanda + Redpanda Console running in docker-compose
   - [x] `claim.submitted` topic created
   - [x] Claims Intake Service publishes on claim submission, confirmed via `rpk topic consume` (Redpanda Console itself confirmed reachable; the literal visual check is left for the repo owner at `localhost:8080`, since Claude Code can't view a browser UI)
-- [ ] **Phase 3** — Adjudication Service rule engine + `claim.adjudicated` published; first real precision/recall numbers logged
-  - [ ] GitHub issue filed for Phase 3
-  - [ ] Rule engine implemented (coverage check, plan-limit check, duplicate check)
-  - [ ] Consumes `claim.submitted`, publishes `claim.adjudicated`
-  - [ ] Labeled synthetic claim set built and run through the engine
-  - [ ] Precision/recall logged in §11 — real numbers, not estimates
+- [x] **Phase 3** — Adjudication Service rule engine + `claim.adjudicated` published; first real precision/recall numbers logged
+  - [x] GitHub issue filed for Phase 3
+  - [x] Rule engine implemented (coverage check, plan-limit check, duplicate check)
+  - [x] Consumes `claim.submitted`, publishes `claim.adjudicated`
+  - [x] Labeled synthetic claim set built and run through the engine
+  - [x] Precision/recall logged in §11 — real numbers, not estimates
 - [ ] **Phase 4** — Notification Service consuming and logging
   - [ ] GitHub issue filed for Phase 4
   - [ ] Consumes `claim.adjudicated`, writes to `notifications_log`
@@ -326,7 +326,14 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 
 ## 11. Metrics checklist (only real, measured numbers go here — update as each phase produces them)
 
-- [ ] Adjudication rule engine: precision / recall against labeled synthetic claim set (n = ?)
+- [x] Adjudication rule engine: precision / recall against labeled synthetic claim set (n = 33) —
+      **precision = 1.000, recall = 1.000** (TP=15, FP=0, TN=18, FN=0), from
+      `RuleEnginePrecisionRecallTest` in adjudication-service, run 2026-09-13. Dataset is
+      hand-labeled synthetic claims run directly against `RuleEngine` (not through the live
+      HTTP/Kafka pipeline) — this measures whether the implementation matches its own rule
+      definitions, which is the correct thing to measure for a deterministic rule-based engine.
+      A perfect score here reflects that the rules are simple and exhaustively covered by the
+      dataset, not that the engine has been tested against real-world noisy data.
 - [ ] RAG retrieval accuracy on fixed-seed eval set (n = ?)
 - [ ] RAG answer correctness (hand-scored or rubric-scored) on same eval set
 - [ ] Test coverage % (Java services combined, and RAG service separately)
@@ -337,6 +344,56 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
 
+- **2026-09-13** — Phase 3 implemented on branch `phase-3-adjudication-rule-engine` (issue #7).
+  Added `spring-boot-starter-data-mongodb`, `spring-kafka`, Testcontainers (`junit-jupiter`,
+  `kafka`, `mongodb`), and Spock/Groovy (`spock-core` 2.3-groovy-4.0 + `gmavenplus-plugin`) to
+  `adjudication-service`. New classes: `Claim`/`ClaimRepository` (same `claims` collection
+  claims-intake-service writes to — a sanctioned same-collection write-back per §5.3, not a
+  cross-service-read violation), `ClaimSubmittedEvent`, `ClaimAdjudicatedEvent`,
+  `ClaimEventPublisher`, `Enrollment`/`EnrollmentClient`/`RestTemplateConfig` (REST call to
+  Enrollment Service), `PlanLimitsProperties` (static config, not a new Mongo collection —
+  4 entries don't earn a repository), `RuleEngine` (single class, three fixed checks: coverage,
+  plan-limit, duplicate — no pluggable Rule interface, since three fixed checks don't earn that
+  abstraction), `AdjudicationConsumer`, and `KafkaConsumerConfig` (first Kafka consumer in the
+  repo — `ErrorHandlingDeserializer` + `JsonDeserializer` configured with
+  `spring.json.use.type.headers=false` + `spring.json.value.default.type`, since the Phase 2
+  producer disabled type headers; `DeadLetterPublishingRecoverer` publishing to
+  `claim.submitted.DLT`, satisfying §4's "DLT recoverer on every consumer from day one").
+
+  **Known limitation, stated deliberately, not an oversight**: `EnrollmentClient` fails closed —
+  if Enrollment Service is unreachable, every claim is denied (not retried, not queued). This is
+  a real business tradeoff (false denials during an outage vs. the risk of approving a claim
+  with unverifiable coverage) — chosen because a wrongful denial is appealable/resubmittable,
+  while a wrongful approval (payout) is not easily clawed back.
+
+  Testing: `RuleEngineSpec.groovy` (Spock, 13 given/when/then cases covering coverage,
+  plan-limit, duplicate, and multi-failure scenarios), Mockito unit tests for
+  `EnrollmentClient`/`AdjudicationConsumer`/`ClaimEventPublisher`, one Testcontainers
+  integration test (`AdjudicationIntegrationTest`, real Kafka + Mongo containers, Enrollment
+  Service mocked) proving the full consume→adjudicate→publish pipeline — all 22 non-container
+  tests plus the integration test passed. Broader integration-test hardening stays deferred to
+  Phase 9 per the original plan; writing these two now (rather than only in Phase 9) was a
+  scoping call, since they're the tests for code being written in this phase.
+
+  `RuleEnginePrecisionRecallTest` ran 33 hand-labeled synthetic claims directly against
+  `RuleEngine` (not through the live pipeline) — precision = 1.000, recall = 1.000
+  (TP=15, FP=0, TN=18, FN=0), logged in §11.
+
+  Verified live against the real running stack, not just unit-tested: rebuilt and restarted
+  `adjudication-service` in `infra/docker-compose.yml` (added `KAFKA_BROKERS`,
+  `ENROLLMENT_SERVICE_URL`, `depends_on: redpanda, enrollment-service`), connected to the real
+  Atlas cluster and Redpanda. Seeded a real ACTIVE dental enrollment, submitted a within-limit
+  claim via the live `POST /claims`, confirmed via Mongo the claim flipped to `APPROVED` with a
+  populated `ruleTrace`, and confirmed via `rpk topic consume claim.adjudicated` that the
+  published event matched §4's schema exactly (lowercase `status: "approved"`). Also verified,
+  live: an over-limit claim → `DENIED` ("amount exceeds plan limit"); a claim with no enrollment
+  → `DENIED` ("no active coverage"); an immediate resubmission of the same claim → `DENIED`
+  ("possible duplicate submission"); stopping `enrollment-service` mid-flight → clean fail-closed
+  `DENIED` with a warning logged, listener stayed alive (confirmed by resubmitting successfully
+  after restarting `enrollment-service`); and a deliberately malformed message published
+  straight to `claim.submitted` → landed on `claim.submitted.DLT` with the expected
+  `DeserializationException` headers, confirming the DLT recoverer actually works. All test
+  claims/enrollments created during manual verification were deleted from Atlas afterward.
 - **2026-09-10** — Initial plan created.
 - **2026-09-10** — Adopted PR-per-phase workflow: added §2.1 (Git workflow & branch protection — no direct commits to `main`, one branch per phase, PR + passing CI required to merge) and §9.1 (detailed GitHub Actions CI/CD pipeline, whose jobs become the required status checks). Phase 0's checklist updated to include configuring branch protection and verifying the CI workflow via an actual PR before later phases depend on it.
 - **2026-09-10** — Clarified §2.1: Claude Code opens PRs but never merges them — merging is always a manual step the repo owner performs after reviewing the diff and confirming CI is green. Mirrored in `CLAUDE.md`.

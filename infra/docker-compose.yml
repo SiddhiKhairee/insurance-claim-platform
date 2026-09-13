@@ -42,6 +42,14 @@ services:
 
   adjudication-service:
     build: ../services/adjudication-service
+    env_file:
+      - ../.env
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      ENROLLMENT_SERVICE_URL: http://enrollment-service:8081
+    depends_on:
+      - redpanda
+      - enrollment-service
     ports:
       - "8083:8083"
 
