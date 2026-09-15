@@ -49,44 +49,56 @@ function ClaimForm({ onSubmitted }) {
     <form onSubmit={handleSubmit}>
       <h2>Submit a Claim</h2>
 
-      <label htmlFor="employeeId">Employee ID</label>
-      <input
-        id="employeeId"
-        value={employeeId}
-        onChange={(event) => setEmployeeId(event.target.value)}
-      />
+      {error && (
+        <p role="alert" className="error-banner">
+          {error}
+        </p>
+      )}
 
-      <label htmlFor="planType">Plan Type</label>
-      <select
-        id="planType"
-        value={planType}
-        onChange={(event) => setPlanType(event.target.value)}
-      >
-        {PLAN_TYPES.map((type) => (
-          <option key={type} value={type}>
-            {type}
-          </option>
-        ))}
-      </select>
+      <div className="field">
+        <label htmlFor="employeeId">Employee ID</label>
+        <input
+          id="employeeId"
+          value={employeeId}
+          onChange={(event) => setEmployeeId(event.target.value)}
+        />
+      </div>
 
-      <label htmlFor="amountRequested">Amount Requested</label>
-      <input
-        id="amountRequested"
-        type="number"
-        value={amountRequested}
-        onChange={(event) => setAmountRequested(event.target.value)}
-      />
+      <div className="field">
+        <label htmlFor="planType">Plan Type</label>
+        <select
+          id="planType"
+          value={planType}
+          onChange={(event) => setPlanType(event.target.value)}
+        >
+          {PLAN_TYPES.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </select>
+      </div>
 
-      <label htmlFor="description">Description</label>
-      <textarea
-        id="description"
-        value={description}
-        onChange={(event) => setDescription(event.target.value)}
-      />
+      <div className="field">
+        <label htmlFor="amountRequested">Amount Requested</label>
+        <input
+          id="amountRequested"
+          type="number"
+          value={amountRequested}
+          onChange={(event) => setAmountRequested(event.target.value)}
+        />
+      </div>
 
-      {error && <p role="alert">{error}</p>}
+      <div className="field">
+        <label htmlFor="description">Description</label>
+        <textarea
+          id="description"
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+        />
+      </div>
 
-      <button type="submit" disabled={submitting}>
+      <button type="submit" className="btn" disabled={submitting}>
         {submitting ? 'Submitting…' : 'Submit Claim'}
       </button>
     </form>
