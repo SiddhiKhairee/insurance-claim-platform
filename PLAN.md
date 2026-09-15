@@ -285,10 +285,10 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 - [x] **Phase 4** — Notification Service consuming and logging
   - [x] GitHub issue filed for Phase 4
   - [x] Consumes `claim.adjudicated`, writes to `notifications_log`
-- [ ] **Phase 5** — React frontend: submit form + live claim-status view
-  - [ ] GitHub issue filed for Phase 5
-  - [ ] Claim submission form wired to Claims Intake Service
-  - [ ] Status view reflects the claim moving through submitted → adjudicated
+- [x] **Phase 5** — React frontend: submit form + live claim-status view
+  - [x] GitHub issue filed for Phase 5
+  - [x] Claim submission form wired to Claims Intake Service
+  - [x] Status view reflects the claim moving through submitted → adjudicated
 - [ ] **Phase 6** — Synthetic policy docs generated, chunked, embedded, Atlas Vector Search index live
   - [ ] GitHub issue filed for Phase 6
   - [ ] Synthetic plan documents written (clearly labeled synthetic)
@@ -344,6 +344,65 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
 
+- **2026-09-15** — Phase 5 implemented on branch `phase-5-frontend-claim-form` (issue #11).
+
+  **Backend gap found and closed**: `claims-intake-service` had no way to read a claim's
+  current status. Added `ClaimRepository.findByClaimId`, `GET /claims/{claimId}` on
+  `ClaimController` (200 with the full `Claim` document, including `status`/`decisionReason`/
+  `ruleTrace`/`adjudicatedAt` once adjudication-service has written them back — reading from
+  claims-intake's own `claims` collection, the same sanctioned same-collection write-back
+  already established in Phase 3/§5.3, not a new cross-service read), and a `WebConfig`
+  (`WebMvcConfigurer`) enabling CORS on `/claims/**` for an origin read from a new
+  `CORS_ALLOWED_ORIGIN` env var (`cors.allowed-origin=${CORS_ALLOWED_ORIGIN:http://localhost:3000}`
+  in `application.properties`, following the same env-var-with-default pattern as
+  `MONGODB_URI`/`KAFKA_BROKERS`/`ENROLLMENT_SERVICE_URL`). Wired as an actual env var (not a
+  hardcoded value) specifically so Phase 8's AWS deploy only needs to set
+  `CORS_ALLOWED_ORIGIN` to the real deployed frontend origin — no code change required then.
+  This is a real forward-pointer to Phase 8, not yet done: the current
+  `infra/docker-compose.yml` value (`http://localhost:3000`) will need to change at deploy time
+  or claim submission will silently fail from the deployed site.
+
+  **Frontend**: new `frontend/src/api.js` (thin fetch wrapper, base URL from
+  `import.meta.env.VITE_CLAIMS_API_URL`, default `http://localhost:8082`), `ClaimForm.jsx`
+  (controlled form matching `ClaimRequest`'s fields/constraints), `ClaimStatus.jsx` (polls
+  `GET /claims/{claimId}` every 2s, capped at 30 attempts/60s). Scope decision, made after
+  review: `ClaimStatus` does not go silent if the cap is hit while still `SUBMITTED` — it
+  switches to a visible "still processing, taking longer than expected" state with a manual
+  retry button, and renders a distinct error state if a poll request itself fails (network/5xx).
+  Reasoning: a silent stop would look like the app froze in a live demo rather than surfacing
+  that the backend (adjudication-service down, Kafka backed up) is the actual problem.
+  `App.jsx` now holds the current-claim state and switches between the form and the status view.
+  `frontend/Dockerfile` takes `ARG VITE_CLAIMS_API_URL` (Vite inlines `VITE_*` at build time,
+  so this has to be a build arg, not a runtime container env var); `infra/docker-compose.yml`
+  passes it as `http://localhost:8082` (correct because the browser, running on the host, calls
+  claims-intake-service via its host-published port, not the internal Docker network name) and
+  sets `CORS_ALLOWED_ORIGIN: http://localhost:3000` on `claims-intake-service`. Added a
+  `frontend/.dockerignore` (`node_modules`, `dist`) and root `.gitignore` entries for
+  `node_modules/`/`dist/` — neither existed before and a stray `node_modules` briefly broke the
+  frontend's Docker build context during verification.
+
+  Testing: `ClaimControllerTest` gained found/not-found cases for the new GET endpoint (Spring
+  MockMvc, matching the existing pattern) — 7/7 tests pass, run via a throwaway
+  `maven:3.9-eclipse-temurin-21` container since Maven isn't installed on the host. Frontend:
+  `ClaimForm.test.jsx`, `ClaimStatus.test.jsx` (Vitest fake timers covering the terminal-status
+  path, the attempt-cap "still processing" path with working retry, and the request-failure
+  error path), and an updated `App.test.jsx` — 8/8 tests pass, ESLint clean, run via a
+  throwaway `node:20-alpine` container (npm's install scripts don't work over this machine's
+  UNC-path repo location natively). No Playwright E2E this phase — that's Phase 9 per §9/§10.
+
+  Verified live against the real running stack, not just unit-tested: rebuilt and restarted
+  `claims-intake-service` and `frontend` in `infra/docker-compose.yml` (the rest of the stack
+  had to be brought back up too — it was found stopped at the start of this session). Seeded a
+  real ACTIVE dental enrollment (`EMP-PHASE5-1`), submitted a real claim via `POST /claims` with
+  an `Origin: http://localhost:3000` header and confirmed the response carried
+  `Access-Control-Allow-Origin: http://localhost:3000`, then polled the new
+  `GET /claims/{claimId}` and confirmed it reflected `SUBMITTED` → `APPROVED` with a populated
+  `ruleTrace` — the same transition `ClaimStatus.jsx` renders. Confirmed `http://localhost:3000`
+  serves the built app (200, contains the page heading). Browser-level visual/interactive
+  confirmation of the form and status view was not performed in this session (no browser-driving
+  tool available) — left to the repo owner, same precedent noted in Phase 0's session log entry.
+  All test claim/enrollment/notification-log data created during manual verification
+  (`EMP-PHASE5-1`) was deleted from Atlas afterward.
 - **2026-09-13** — Phase 4 implemented on branch `phase-4-notification-service` (issue #9).
   Added `spring-boot-starter-data-mongodb`, `spring-kafka`, and Testcontainers
   (`junit-jupiter`, `kafka`, `mongodb`) to `notification-service`. New classes:

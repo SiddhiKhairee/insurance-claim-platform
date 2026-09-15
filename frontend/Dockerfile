@@ -1,5 +1,7 @@
 FROM node:20-alpine AS build
 WORKDIR /app
+ARG VITE_CLAIMS_API_URL
+ENV VITE_CLAIMS_API_URL=${VITE_CLAIMS_API_URL}
 COPY package.json ./
 RUN npm install
 COPY . .
