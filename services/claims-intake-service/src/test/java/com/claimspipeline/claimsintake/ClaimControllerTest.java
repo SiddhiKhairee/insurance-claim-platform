@@ -3,12 +3,14 @@ package com.claimspipeline.claimsintake;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -89,5 +91,29 @@ class ClaimControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(invalid)))
         .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void getByClaimIdReturnsClaimWhenFound() throws Exception {
+    Claim claim = new Claim();
+    claim.setClaimId("claim-1");
+    claim.setEmployeeId("EMP-1");
+    claim.setPlanType("dental");
+    claim.setStatus("APPROVED");
+
+    when(repository.findByClaimId("claim-1")).thenReturn(Optional.of(claim));
+
+    mockMvc
+        .perform(get("/claims/claim-1"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.claimId").value("claim-1"))
+        .andExpect(jsonPath("$.status").value("APPROVED"));
+  }
+
+  @Test
+  void getByClaimIdReturnsNotFoundWhenMissing() throws Exception {
+    when(repository.findByClaimId("missing")).thenReturn(Optional.empty());
+
+    mockMvc.perform(get("/claims/missing")).andExpect(status().isNotFound());
   }
 }

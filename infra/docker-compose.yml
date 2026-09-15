@@ -35,6 +35,7 @@ services:
       - ../.env
     environment:
       KAFKA_BROKERS: redpanda:9092
+      CORS_ALLOWED_ORIGIN: http://localhost:3000
     depends_on:
       - redpanda
     ports:
@@ -70,7 +71,10 @@ services:
       - "8000:8000"
 
   frontend:
-    build: ../frontend
+    build:
+      context: ../frontend
+      args:
+        VITE_CLAIMS_API_URL: http://localhost:8082
     ports:
       - "3000:80"
 
