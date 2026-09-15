@@ -344,6 +344,32 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
 
+- **2026-09-15** — Correction to the Phase 6 entry immediately below, made before merge in
+  response to review feedback on PR #15. The original entry is left as-is (per this file's own
+  rule against silently rewriting logged results); this entry records what changed.
+
+  The "known gap" noted below (chunks at ~120-245 tokens, short of §6's 300-500 token target)
+  was addressed by genuinely expanding each policy doc's weakest sections — more specific limit
+  breakdowns, additional concrete exclusion examples, and additional defined terms — rather than
+  padding with filler. All four docs in `data/synthetic/policy_docs/` were rewritten, and
+  `generate_policy_docs.py` was re-run to re-upsert all 16 chunks in place (same `docId`s, no
+  new documents created). **Result: all 16 chunks now land between 306 and 441 tokens**
+  (word-count-based estimate), inside the §6 target range. Still 16 chunks total, 4 per plan
+  type, 384-dim embeddings — confirmed via a direct Atlas count.
+
+  Both `$vectorSearch` verification queries were re-run against the re-embedded chunks (via
+  `verify_vector_search.py`, now generalized to accept a question argument instead of hardcoding
+  one):
+  - "What is the maximum benefit for a dental claim?" — still correctly ranks
+    `dental_coverage-limits` first (score 0.854, effectively unchanged from the original run).
+  - "Is suicide excluded from the life insurance benefit?" — **the ranking did not flip**:
+    `life_coverage-limits` (0.798) still ranks fractionally above `life_exclusions` (0.785),
+    though the score gap narrowed from 0.023 to 0.014. Reported honestly rather than claimed as
+    fixed — richer content measurably tightened the gap but did not resolve the underlying
+    limitation, which is a genuine property of a small, general-purpose embedding model applied
+    to short, closely-related insurance chunks, not a content-thinness problem after all. Both
+    results remain correctly plan-scoped (all top-3 hits for each query belong to the right
+    `planType`), which is the property that actually matters for Phase 7's retrieval step.
 - **2026-09-15** — Phase 6 implemented on branch `phase-6-policy-docs-vector-search` (issue #14).
 
   **Synthetic policy docs**: `data/synthetic/policy_docs/{disability,dental,vision,life}.md`,
