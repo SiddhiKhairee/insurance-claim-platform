@@ -39,7 +39,7 @@ describe('ClaimStatus', () => {
     })
 
     expect(getClaim).toHaveBeenCalledTimes(2)
-    expect(screen.getByText('Decision: APPROVED')).toBeInTheDocument()
+    expect(screen.getByText('APPROVED')).toBeInTheDocument()
     expect(screen.getByText('Reason: within plan limit')).toBeInTheDocument()
     expect(screen.getByText('coverage-check')).toBeInTheDocument()
   })

@@ -60,31 +60,37 @@ function ClaimStatus({ claimId }) {
   return (
     <section>
       <h2>Claim Status</h2>
-      <p>Claim ID: {claimId}</p>
-      {status && <p>Status: {status}</p>}
+      <p className="status-meta">Claim ID: {claimId}</p>
 
-      {phase === 'polling' && !isTerminal && <p>Checking for updates…</p>}
+      {status && (
+        <span className={`status-badge status-${status.toLowerCase()}`}>{status}</span>
+      )}
+
+      {phase === 'polling' && !isTerminal && <p className="status-note">Checking for updates…</p>}
 
       {phase === 'timedOut' && !isTerminal && (
-        <div role="status">
+        <div role="status" className="status-processing">
           <p>Still processing — this is taking longer than expected.</p>
-          <button onClick={handleRetry}>Check again</button>
+          <button className="btn btn-secondary" onClick={handleRetry}>
+            Check again
+          </button>
         </div>
       )}
 
       {phase === 'error' && (
-        <div role="alert">
+        <div role="alert" className="status-error">
           <p>Couldn&apos;t check claim status: {errorMessage}</p>
-          <button onClick={handleRetry}>Retry</button>
+          <button className="btn btn-secondary" onClick={handleRetry}>
+            Retry
+          </button>
         </div>
       )}
 
       {isTerminal && (
         <div>
-          <p>Decision: {status}</p>
-          {claim.decisionReason && <p>Reason: {claim.decisionReason}</p>}
+          {claim.decisionReason && <p className="decision-reason">Reason: {claim.decisionReason}</p>}
           {claim.ruleTrace?.length > 0 && (
-            <ul>
+            <ul className="rule-trace">
               {claim.ruleTrace.map((rule) => (
                 <li key={rule}>{rule}</li>
               ))}
