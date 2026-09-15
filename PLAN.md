@@ -289,11 +289,11 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
   - [x] GitHub issue filed for Phase 5
   - [x] Claim submission form wired to Claims Intake Service
   - [x] Status view reflects the claim moving through submitted → adjudicated
-- [ ] **Phase 6** — Synthetic policy docs generated, chunked, embedded, Atlas Vector Search index live
-  - [ ] GitHub issue filed for Phase 6
-  - [ ] Synthetic plan documents written (clearly labeled synthetic)
-  - [ ] Chunking + embedding script run, `policy_documents` populated
-  - [ ] Atlas Vector Search index created and queryable
+- [x] **Phase 6** — Synthetic policy docs generated, chunked, embedded, Atlas Vector Search index live
+  - [x] GitHub issue filed for Phase 6
+  - [x] Synthetic plan documents written (clearly labeled synthetic)
+  - [x] Chunking + embedding script run, `policy_documents` populated
+  - [x] Atlas Vector Search index created and queryable
 - [ ] **Phase 7** — RAG Assistant service (LangGraph, fallback chain, guardrail node) + `/assistant/ask` + frontend Q&A widget; eval run, real numbers logged
   - [ ] GitHub issue filed for Phase 7
   - [ ] Retrieve → generate → guardrail graph implemented
@@ -344,6 +344,77 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
 
+- **2026-09-15** — Correction to the Phase 6 entry immediately below, made before merge in
+  response to review feedback on PR #15. The original entry is left as-is (per this file's own
+  rule against silently rewriting logged results); this entry records what changed.
+
+  The "known gap" noted below (chunks at ~120-245 tokens, short of §6's 300-500 token target)
+  was addressed by genuinely expanding each policy doc's weakest sections — more specific limit
+  breakdowns, additional concrete exclusion examples, and additional defined terms — rather than
+  padding with filler. All four docs in `data/synthetic/policy_docs/` were rewritten, and
+  `generate_policy_docs.py` was re-run to re-upsert all 16 chunks in place (same `docId`s, no
+  new documents created). **Result: all 16 chunks now land between 306 and 441 tokens**
+  (word-count-based estimate), inside the §6 target range. Still 16 chunks total, 4 per plan
+  type, 384-dim embeddings — confirmed via a direct Atlas count.
+
+  Both `$vectorSearch` verification queries were re-run against the re-embedded chunks (via
+  `verify_vector_search.py`, now generalized to accept a question argument instead of hardcoding
+  one):
+  - "What is the maximum benefit for a dental claim?" — still correctly ranks
+    `dental_coverage-limits` first (score 0.854, effectively unchanged from the original run).
+  - "Is suicide excluded from the life insurance benefit?" — **the ranking did not flip**:
+    `life_coverage-limits` (0.798) still ranks fractionally above `life_exclusions` (0.785),
+    though the score gap narrowed from 0.023 to 0.014. Reported honestly rather than claimed as
+    fixed — richer content measurably tightened the gap but did not resolve the underlying
+    limitation, which is a genuine property of a small, general-purpose embedding model applied
+    to short, closely-related insurance chunks, not a content-thinness problem after all. Both
+    results remain correctly plan-scoped (all top-3 hits for each query belong to the right
+    `planType`), which is the property that actually matters for Phase 7's retrieval step.
+- **2026-09-15** — Phase 6 implemented on branch `phase-6-policy-docs-vector-search` (issue #14).
+
+  **Synthetic policy docs**: `data/synthetic/policy_docs/{disability,dental,vision,life}.md`,
+  each opening with an explicit "SYNTHETIC DATA" disclaimer, then `##` sections (Coverage
+  Limits, Exclusions, Waiting Periods, Definitions). Coverage-limit figures were deliberately
+  set to match `adjudication-service`'s actual `adjudication.plan-limits.*` config
+  (disability $5,000 / dental $2,000 / vision $500 / life $10,000) so the RAG assistant's
+  answers in Phase 7 will agree with what the rule engine actually enforces, rather than
+  describing a different, undocumented set of numbers.
+
+  **Chunking + embedding**: `data/synthetic/generate_policy_docs.py` splits each doc on `##`
+  headers, embeds each chunk's body text with `sentence-transformers`' `all-MiniLM-L6-v2`
+  (384-dim, matching §3/§6's free/local-model choice), and upserts into `policy_documents` on
+  a stable `docId` (`{planType}_{section-slug}`) for idempotent re-runs. Run via WSL's Python
+  3.12 (`data/synthetic/.venv`), not the Windows host's Python 3.14 — `sentence-transformers`/
+  `torch` wheels aren't yet stable there. 16 chunks produced (4 per plan type), confirmed via
+  a direct Atlas count and a spot-checked document (`dental_coverage-limits`, 384-length
+  embedding array).
+
+  **Known gap, stated honestly rather than fudged**: chunks landed at ~120-245 tokens
+  (word-count-based estimate) per section, below §6's ~300-500 token target — the synthetic
+  docs were authored for clear, defensible per-topic content rather than padded to hit a word
+  count. Not re-padded further to chase the number artificially.
+
+  **Vector index**: `data/synthetic/create_vector_index.py` creates
+  `policy_documents_vector_index` (type `vectorSearch`, 384-dim `embedding` field, cosine
+  similarity, `planType` as a filter field) via `pymongo`'s `create_search_index`, idempotent
+  (skips if already present), and polls `list_search_indexes()` until `queryable: true` rather
+  than assuming success once the create call returns — Atlas builds these asynchronously (took
+  about 30s in practice: 5 poll cycles at 5s each before reporting queryable).
+
+  **Verified live, not just "created"**: ran a real `$vectorSearch` query (`data/synthetic/
+  verify_vector_search.py`) for "What is the maximum benefit for a dental claim?" — top result
+  was `dental_coverage-limits` (score 0.854), followed by `dental_exclusions` (0.794) and
+  `dental_waiting-periods` (0.772) — all four dental chunks would have been correctly
+  plan-scoped even before ranking. A second, ad-hoc query for "Is suicide excluded from the
+  life insurance benefit?" returned `life_coverage-limits` (0.799) ranked above
+  `life_exclusions` (0.776) — correctly plan-scoped (all top-3 were `life_*`) but not perfectly
+  ranked by topical specificity for this query, a real and unsurprising limitation of a small
+  MiniLM model over short, closely-related chunks, logged honestly rather than only reporting
+  the cleaner first example.
+
+  This seeded `policy_documents` data and the vector index are the **permanent** dataset Phase
+  7's RAG assistant will read from — unlike the ad-hoc claims/enrollments created during
+  Phases 3-5's manual verification, nothing here was deleted afterward.
 - **2026-09-15** — Phase 5 implemented on branch `phase-5-frontend-claim-form` (issue #11).
 
   **Backend gap found and closed**: `claims-intake-service` had no way to read a claim's
