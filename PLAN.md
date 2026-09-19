@@ -300,6 +300,34 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
   - [ ] LLM provider fallback chain working (tested by forcing a failure)
   - [ ] Frontend Q&A widget wired up
   - [ ] Fixed-seed eval set built and scored, logged in §11
+
+  > **Split into 7a and 7b on 2026-09-19 (see §12 entry of that date).** The five original items
+  > above are left as written but are **superseded by the 7a/7b items below wherever they
+  > conflict** — in particular, the graph is now guardrail → retrieve → generate → groundedness
+  > check (not retrieve → generate → guardrail), and the fixed-seed eval set is now sized honestly
+  > with a calibration/held-out split. Phase 7 is done only when **both** 7a and 7b are done; this
+  > parent box stays unchecked until then. Each sub-phase gets its own branch, issue, and PR (§2.1).
+
+  - [ ] **Phase 7a** — RAG service (backend only), branch `phase-7a-rag-service`
+    - [x] GitHub issue filed for Phase 7a (#16)
+    - [ ] Guardrail node runs first: deterministic (no LLM) refusal of adjudication-decision requests, pointing to the claim's `ruleTrace`
+    - [ ] Retrieve node: `all-MiniLM-L6-v2` query embedding + `$vectorSearch` on `policy_documents_vector_index`, top-k, `planType` filter when known
+    - [ ] Generate node: hosted LLM API only (no self-hosting), provider chain Groq → Gemini → deterministic "I don't have enough information" abstain; tested by forcing a provider failure
+    - [ ] Groundedness node: local NLI cross-encoder scores the generated answer against the retrieved chunks; below threshold → retry next provider → abstain. No generated text is ever returned without passing this gate. Threshold is **provisional** in 7a, calibrated in 7b
+    - [ ] Claim-explanation path: given a `claimId`, fetch decision + `ruleTrace` via claims-intake-service's `GET /claims/{claimId}` (REST, never a direct `claims` collection read)
+    - [ ] `POST /assistant/ask { question, claimId? }` returns answer, source-chunk citations, groundedness score, and which provider answered (or that it abstained)
+    - [ ] pytest: each node in isolation, the endpoint, guardrail on multiple decision-seeking phrasings, forced provider failure falls through the chain, a hallucinated answer is caught and abstained on by the gate
+    - [ ] Verified live against the real stack (real questions, real citations, guardrail refusal, a real adjudicated claim explained); NLI model memory footprint measured and noted as a Phase 8 input
+    - [ ] ruff clean; CI (`test-python`, `build-docker`) green
+  - [ ] **Phase 7b** — Evaluation + frontend, branch `phase-7b-rag-eval-frontend` (start only after 7a is merged)
+    - [ ] GitHub issue filed for Phase 7b
+    - [ ] Eval set in `data/eval/`: fixed seed, honest size, no padding or near-duplicates. Each row: question, expected chunk `docId`, key facts for the reference answer, in-scope/out-of-scope flag. Includes paraphrases, decision-seeking questions (should be refused), and hard cases (e.g. the life-plan ranking weakness logged in §12, 2026-09-15)
+    - [ ] Calibration / held-out split; headline numbers reported on the held-out part only, with its size stated
+    - [ ] Scoring scripts implementing the metric definitions in §11 exactly as fixed on 2026-09-19
+    - [ ] Groundedness threshold calibrated on the calibration split only, replacing 7a's provisional value
+    - [ ] Final scored run logged in §11 (real numbers, with date, commit, config)
+    - [ ] Frontend Q&A widget: answer, citations, distinct "couldn't answer reliably" state for abstentions; `docker-compose.yml` env/build-arg wiring and CORS on the RAG service
+    - [ ] Vitest for the widget; eslint clean; CI green
 - [ ] **Phase 8** — AWS deployment: EC2 + S3 + security groups + budget alarm; system reachable at a public URL
   - [ ] GitHub issue filed for Phase 8
   - [ ] IAM user created (not root), least-privilege policy attached
@@ -335,7 +363,20 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
       A perfect score here reflects that the rules are simple and exhaustively covered by the
       dataset, not that the engine has been tested against real-world noisy data.
 - [ ] RAG retrieval accuracy on fixed-seed eval set (n = ?)
+      Definition (fixed 2026-09-19, before any run): on held-out in-scope questions, top-1 hit
+      rate and hit@k (k = the k the graph actually uses) — a hit is the expected chunk `docId`
+      appearing in the retrieved set.
 - [ ] RAG answer correctness (hand-scored or rubric-scored) on same eval set
+      Definition (fixed 2026-09-19): fraction of held-out in-scope questions whose final answer
+      contains all of the row's reference key facts (checked by script, then hand-reviewed);
+      binary. An abstention on an in-scope question counts as incorrect.
+- [ ] RAG response groundedness on same eval set (added 2026-09-19)
+      Definition (fixed 2026-09-19): mean NLI entailment score of final, non-abstained answers
+      against their retrieved chunks. Reported both before and after the gate, alongside the
+      share of answers abstained, since abstaining raises the post-gate number.
+- [ ] RAG abstention correctness on out-of-scope questions (added 2026-09-19)
+      Definition (fixed 2026-09-19): fraction of held-out out-of-scope questions (including
+      decision-seeking ones) that the system refused or abstained on rather than answered.
 - [ ] Test coverage % (Java services combined, and RAG service separately)
 - [ ] CI pipeline runtime (before/after any optimization, if you do one)
 - [ ] End-to-end event latency: time from `claim.submitted` publish to `claim.adjudicated` publish (measured, not estimated)
@@ -344,6 +385,62 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
 
+- **2026-09-19** — Phase 7 scope change and split into 7a / 7b, agreed with the repo owner
+  before any Phase 7 code was written. This supersedes §5.5's and §6's description of the RAG
+  service where they conflict; those sections are left as written per this file's own rule.
+  Phase 6 (PR #15) was merged before this entry was made.
+
+  **Why**: the RAG assistant's value as a project is that it does not blindly trust LLM output.
+  The graph therefore gates every generated answer on groundedness instead of returning it
+  as-is, and the eval measures that gate honestly.
+
+  **Graph (supersedes §6's retrieve → generate → guardrail order)**: guardrail → retrieve →
+  generate → groundedness check.
+  - *Guardrail* runs first and is deterministic (no LLM): requests to approve/deny/decide a claim
+    are refused and pointed to the claim's `ruleTrace`. Adjudication stays rule-based (CLAUDE.md).
+  - *Retrieve*: same `all-MiniLM-L6-v2` model as Phase 6, Atlas `$vectorSearch`.
+  - *Generate*: hosted LLM API, provider chain Groq → Gemini → deterministic abstain (§6's chain,
+    unchanged). **No self-hosted model**: a quantized small model needs roughly 1–2 GB RAM, which
+    a t3.micro (~1 GB, already running 4 JVMs + Redpanda) cannot hold, and a larger instance
+    would leave the free tier (§8). Considered and rejected, not overlooked.
+  - *Groundedness check*: a local NLI cross-encoder scores the answer against the retrieved
+    chunks. Below threshold → retry with the next provider → finally abstain ("I don't have
+    enough information"). No generated text is returned without passing this gate. Known weak
+    spots of NLI (numbers, negation) are to be stated wherever the metric is reported.
+  - *Claim explanation*: when `claimId` is supplied, decision + `ruleTrace` are read through
+    claims-intake-service's `GET /claims/{claimId}` — never from the `claims` collection.
+  - Open risk carried to Phase 8: the NLI model adds memory to the service; 7a measures it.
+
+  **Considered and not chosen**: an extractive-first path (return the best chunk/sentence
+  directly, LLM only on low confidence). Rejected for scope — it adds a second answer path to
+  build and tune, and confidence gating is hard on this data (the 2026-09-15 life-plan query
+  ranked 0.798 vs 0.785). Can be revisited after Phase 7.
+
+  **Eval (supersedes §6's "20–30 pairs")**: sized to what can be written honestly — no padding,
+  no near-duplicate rows to hit a count. Fixed seed, with a calibration/held-out split: the
+  groundedness threshold is tuned on the calibration split only, and headline numbers are
+  reported on the held-out split with its size stated. Metric definitions are fixed in §11 now,
+  before any run, so they cannot be chosen after seeing results. If a real number is lower than
+  hoped, the description changes — not the eval.
+
+  **Split** (Phase 7 is one of the two phases §2.1 flags as a candidate for smaller PRs). The
+  original 7a would have included eval-set authoring and threshold calibration, which is too much
+  for one session and would leave 7b thin — and the threshold cannot be calibrated honestly until
+  the eval set exists. Final split:
+  - **7a** (branch `phase-7a-rag-service`): the service — graph, guardrail, provider chain,
+    groundedness gate with a *provisional* threshold, claim-explanation path, endpoint, pytest,
+    live verification.
+  - **7b** (branch `phase-7b-rag-eval-frontend`, only after 7a merges): eval set + split, scoring
+    scripts, threshold calibration, final scored run logged in §11, frontend Q&A widget.
+  Each has its own issue and PR; Phase 7's parent box in §10 stays unchecked until both are done.
+
+  **Deferred to Phase 10 (README / resume wording, not Phase 7 work)** — to keep the project
+  description accurate: say "Kafka-compatible (Redpanda)" rather than "Apache Kafka"; note that
+  only three services communicate via Kafka (Adjudication calls Enrollment over REST); state that
+  all data is synthetic; describe the adjudication precision/recall as measured on a hand-labeled
+  synthetic set run directly against the engine (§11), not the live pipeline; and mention the
+  guardrail and groundedness-gated fallback, since that is the reliability claim. No metric
+  number appears in any description until it has been produced by a real run and logged in §11.
 - **2026-09-15** — Correction to the Phase 6 entry immediately below, made before merge in
   response to review feedback on PR #15. The original entry is left as-is (per this file's own
   rule against silently rewriting logged results); this entry records what changed.
