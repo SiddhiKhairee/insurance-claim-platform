@@ -67,8 +67,22 @@ services:
 
   rag-assistant-service:
     build: ../services/rag-assistant-service
+    env_file:
+      - ../.env
+    environment:
+      CLAIMS_INTAKE_URL: http://claims-intake-service:8082
+    depends_on:
+      - claims-intake-service
     ports:
       - "8000:8000"
+    # /health is liveness only (200 while models load in the background); start_period covers
+    # the first model load so a slow start isn't flagged unhealthy.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
   frontend:
     build:

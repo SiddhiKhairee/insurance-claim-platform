@@ -1,0 +1,8 @@
+# Model-backed adapters (embeddings + NLI). Installed in the Docker image only — CI's
+# `test-python` uses fakes and never installs torch. CPU-only torch: the "+cpu" local version
+# exists only on the PyTorch index, so pip can't fall back to PyPI's CUDA wheel.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.4.1+cpu
+numpy<2
+sentence-transformers==3.1.1
+sentencepiece==0.2.0
