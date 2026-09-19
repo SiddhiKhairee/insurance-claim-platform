@@ -7,3 +7,7 @@ select = ["E", "F", "I"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+# `ml` tests need real model weights (torch, HF downloads) and are excluded by default so CI
+# stays fast and offline. Run them with: pytest -m ml
+addopts = "-m 'not ml'"
+markers = ["ml: needs real model weights (torch/sentence-transformers); not run in CI"]
