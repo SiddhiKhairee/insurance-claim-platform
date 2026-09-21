@@ -385,6 +385,86 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
 
+- **2026-09-21** — Phase 7b eval freeze, written **before any LLM run** (issue #18, branch
+  `phase-7b-rag-eval-frontend`). Everything below is fixed now; if a real number is lower than
+  hoped, the description changes, not the eval.
+
+  **Dataset.** `data/eval/eval_set.jsonl`: 51 rows — 12 factual, 9 paraphrase, 12 hard, 9
+  out-of-scope, 9 decision-seeking — plus `data/eval/adversarial_probes.jsonl`: 23 hand-written
+  plausible-but-unsupported answers (wrong number / negation / other plan / invented fact). Content
+  committed in `2b445a0`; the split was assigned in the commit that adds this entry. The owner
+  reviewed every row and probe against the four policy docs; four rows' key facts (hard-03, -06,
+  -08, -10) were tightened at that review because bare words ("before", "same", "once") would
+  have false-matched unsupported text. `dec-08` is the closest call among the decision-seeking
+  rows (reads like a policy question).
+
+  **Split.** Seed 7, stratified by category, ~40% calibration, written into each row's `split`
+  field; `python -m evaluation.evalset assign` refuses to run again. Calibration: 22 rows (14
+  in-scope, 4 out-of-scope, 4 decision-seeking) and 12 probes. Held-out: 29 rows (19 in-scope, 5
+  out-of-scope, 5 decision-seeking) and 11 probes. **Held-out n is small (19 in-scope)**, so
+  intervals are wide; that is stated with every number. Two of the 7a hard cases (LASIK,
+  suicide) fall in held-out, so calibration does not tune on them.
+
+  **Authoring disclosure — the set was not written blind.** (1) Questions were written from the
+  16 policy chunks. (2) The hard cases were informed by 7a's live-run observations (LASIK and
+  suicide answers flipping between accepted and abstained, the multi-beneficiary abstention, the
+  life-plan ranking weakness). (3) The decision-seeking rows were written without opening
+  `assistant/guardrail.py` or its tests, but the author had seen an exploration summary of the
+  guardrail's rule categories (verb list, modal / prediction / status-change patterns), so the
+  rows are not independent of that; the slippery ones (`dec-06`..`dec-09`) deliberately go
+  beyond those categories. Guardrail misses will be reported as findings, not fixed inside 7b's
+  numbers and not removed from the set. (4) Probes were placed on rows after the split was seen
+  in a dry run (calibration would otherwise have had 3 probes), before any score existed.
+
+  **Metrics** are the §11 definitions unchanged. Headline retrieval is the graph's real
+  configuration (plan filter as `infer_plan_type` sets it, k = `RETRIEVAL_TOP_K` = 3); because a
+  filter leaves 4 candidate chunks, hit@3 is lenient, so unfiltered top-1 / hit@3 is reported as
+  a clearly labelled secondary. "Before the gate" groundedness = mean NLI of the first generated
+  answer per held-out question; "after" = mean NLI of final answered outputs; reported with the
+  share generated-but-not-answered. Probe pass-rate through the real gate is a secondary
+  diagnostic, not a §11 headline.
+
+  **Repeats (fixed now).** The final held-out run is repeated 3 times. Each run gets its own
+  rate with a Wilson 95% interval, n = held-out questions. The headline is the mean of the 3
+  per-run rates with the min–max range and **no pooled interval** — repeats measure LLM
+  variance, not sample size. Retrieval metrics involve no LLM, so they are computed once, not per
+  repeat (the final run's retrieved chunks are cross-checked against that single computation).
+
+  **Calibration criterion (fixed now).** Data: a collect run over the calibration split with a
+  gate that records but always rejects, so every provider's answer and NLI score is captured.
+  Each recorded answer is hand-labelled *faithful* (every claim supported by the chunks retrieved
+  for that question) or *unfaithful*; probes count as unfaithful by construction. Rule
+  (`metrics.choose_threshold`, grid 0.05–0.95 step 0.05): among thresholds that reject **every**
+  unfaithful attempt (real unfaithful answers and calibration probes), take the one that accepts
+  the most faithful attempts; on a plateau take the midpoint of the longest contiguous tied run.
+  If no threshold rejects every unfaithful attempt, keep the provisional 0.5, report the trade-off
+  table and the over-abstention rate as a finding, and **do not change the NLI model or the
+  criterion** (owner decision). §12 will record the number of faithful attempts, unfaithful
+  attempts and probes the threshold was chosen from, and the plateau range. Disagreements between
+  a hand label and the key-fact script are flagged for owner confirmation before the threshold is
+  used.
+
+  **Procedure and logging.** Real graph, real gate, in-process; the only production change is a
+  public `build_deps` in `assistant/runtime.py` (so the eval wraps the exact production wiring).
+  A provider error (typically a free-tier rate limit) triggers up to 2 retries of that question
+  after 30 s, recorded per question, so infrastructure hiccups are not scored as abstentions.
+  Every run file starts with a `_meta` line: date, commit, LLM temperature (0; asserted for both
+  providers in `tests/test_llm.py`), Groq/Gemini/NLI/embedding model names, threshold, top_k, and
+  content hashes of `assistant/`, `evaluation/`, the eval set and the policy docs. The
+  key-fact script's verdicts are hand-reviewed; overrides live in `data/eval/reviews.jsonl`.
+  `simulate_chain` (used only for the threshold sweep) is pinned to the real graph by a parity
+  test.
+
+  **Scope limits, stated.** Claim-explanation questions (need live claims) are not scored; they
+  were verified live in 7a. The scored eval is not run in CI (needs Atlas, LLM keys, torch); CI
+  runs the metric code and dataset-integrity tests, and the eval is a manual pre-merge check for
+  prompt/threshold changes. The set is small, single-author and synthetic; it measures this
+  system on this 16-chunk corpus, not generalization.
+
+  **Phase 8 forward pointer.** `VITE_RAG_API_URL` (frontend build arg) and the RAG service's
+  `CORS_ALLOWED_ORIGIN` are set to `http://localhost:8000` / `http://localhost:3000` in
+  `infra/docker-compose.yml`; both must be set to the real deployed origins at deploy time, and
+  `docker-compose.prod.yml` has neither yet.
 - **2026-09-19** — Phase 7a implemented on branch `phase-7a-rag-service` (issue #16). Backend only;
   eval set, threshold calibration, §11 numbers and the frontend widget remain 7b.
 
