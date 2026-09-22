@@ -17,9 +17,11 @@ DATABASE_NAME = "claims_platform"
 COLLECTION_NAME = "policy_documents"
 
 
-def build_assistant(settings: Settings) -> Assistant:
+def build_deps(settings: Settings) -> GraphDeps:
+    """The real dependency wiring. Public so the Phase 7b eval harness measures exactly this
+    wiring (wrapped with recorders) instead of a copy that could drift."""
     collection = MongoClient(settings.mongodb_uri)[DATABASE_NAME][COLLECTION_NAME]
-    deps = GraphDeps(
+    return GraphDeps(
         embedder=SentenceTransformerEmbedder(),
         store=MongoVectorStore(collection),
         claims=HttpClaimsClient(settings.claims_intake_url),
@@ -34,4 +36,7 @@ def build_assistant(settings: Settings) -> Assistant:
                               settings.groundedness_threshold),
         top_k=settings.retrieval_top_k,
     )
-    return Assistant(deps)
+
+
+def build_assistant(settings: Settings) -> Assistant:
+    return Assistant(build_deps(settings))

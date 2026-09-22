@@ -318,15 +318,15 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
     - [x] `POST /assistant/ask { question, claimId? }` returns answer, source-chunk citations, groundedness score, and which provider answered (or that it abstained)
     - [x] pytest: each node in isolation, the endpoint, guardrail on multiple decision-seeking phrasings, forced provider failure falls through the chain, a hallucinated answer is caught and abstained on by the gate
     - [x] Verified live against the real stack (real questions, real citations, guardrail refusal, a real adjudicated claim explained); NLI model memory footprint measured and noted as a Phase 8 input
-    - [ ] ruff clean; CI (`test-python`, `build-docker`) green  _(ruff clean and pytest green verified locally incl. under Python 3.11, and the image builds; the CI checkbox stays open until the PR's checks actually pass)_
+    - [x] ruff clean; CI (`test-python`, `build-docker`) green  _(ruff clean and pytest green verified locally incl. under Python 3.11, and the image builds; PR #17's checks — including `test-python` and `build-docker (services/rag-assistant-service)` — passed before it was merged, checked 2026-09-21)_
   - [ ] **Phase 7b** — Evaluation + frontend, branch `phase-7b-rag-eval-frontend` (start only after 7a is merged)
-    - [ ] GitHub issue filed for Phase 7b
-    - [ ] Eval set in `data/eval/`: fixed seed, honest size, no padding or near-duplicates. Each row: question, expected chunk `docId`, key facts for the reference answer, in-scope/out-of-scope flag. Includes paraphrases, decision-seeking questions (should be refused), and hard cases (e.g. the life-plan ranking weakness logged in §12, 2026-09-15)
-    - [ ] Calibration / held-out split; headline numbers reported on the held-out part only, with its size stated
-    - [ ] Scoring scripts implementing the metric definitions in §11 exactly as fixed on 2026-09-19
-    - [ ] Groundedness threshold calibrated on the calibration split only, replacing 7a's provisional value
-    - [ ] Final scored run logged in §11 (real numbers, with date, commit, config)
-    - [ ] Frontend Q&A widget: answer, citations, distinct "couldn't answer reliably" state for abstentions; `docker-compose.yml` env/build-arg wiring and CORS on the RAG service
+    - [x] GitHub issue filed for Phase 7b (#18)
+    - [x] Eval set in `data/eval/`: fixed seed, honest size, no padding or near-duplicates. Each row: question, expected chunk `docId`, key facts for the reference answer, in-scope/out-of-scope flag. Includes paraphrases, decision-seeking questions (should be refused), and hard cases (e.g. the life-plan ranking weakness logged in §12, 2026-09-15)
+    - [x] Calibration / held-out split; headline numbers reported on the held-out part only, with its size stated
+    - [x] Scoring scripts implementing the metric definitions in §11 exactly as fixed on 2026-09-19
+    - [ ] Groundedness threshold calibrated on the calibration split only, replacing 7a's provisional value  _(calibration was run on the calibration split only, but it failed its pre-set criterion — no threshold rejects every unfaithful attempt — so 0.5 was kept and is **not** calibrated; see §12, 2026-09-21. Left unchecked deliberately.)_
+    - [x] Final scored run logged in §11 (real numbers, with date, commit, config)
+    - [x] Frontend Q&A widget: answer, citations, distinct "couldn't answer reliably" state for abstentions; `docker-compose.yml` env/build-arg wiring and CORS on the RAG service  _(verified: the four result states and validation by Vitest; live against the rebuilt compose stack, CORS preflight allowed/disallowed origin, an answered, a refused, an abstained and a 422 response via curl, and `VITE_RAG_API_URL` + the widget present in the built bundle. Not verified by me: the rendered page in a browser at `localhost:3000` — left to the repo owner, as with Redpanda Console in Phase 2.)_
     - [ ] Vitest for the widget; eslint clean; CI green
 - [ ] **Phase 8** — AWS deployment: EC2 + S3 + security groups + budget alarm; system reachable at a public URL
   - [ ] GitHub issue filed for Phase 8
@@ -362,21 +362,64 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
       definitions, which is the correct thing to measure for a deterministic rule-based engine.
       A perfect score here reflects that the rules are simple and exhaustively covered by the
       dataset, not that the engine has been tested against real-world noisy data.
-- [ ] RAG retrieval accuracy on fixed-seed eval set (n = ?)
+- **RAG eval run conditions (all four RAG items below).** Final scored run 2026-09-21, held-out
+  split only: **n = 29 questions (19 in-scope, 5 out-of-scope, 5 decision-seeking)**, 3 repeats.
+  Groq `openai/gpt-oss-120b` → Gemini `gemini-3.5-flash-lite`, NLI
+  `cross-encoder/nli-deberta-v3-small`, embeddings `all-MiniLM-L6-v2`, LLM temperature 0,
+  k = 3, groundedness threshold **0.5, which is not calibrated** (calibration failed its
+  criterion; §12, 2026-09-21). Run from commit `4e03ab3` plus an uncommitted working tree; the
+  exact code/data are identified by the content hashes in `_meta.fingerprint` of
+  `data/eval/runs/2026-09-21-final-heldout.jsonl`. Wilson 95% intervals use n = held-out
+  questions; per-run values are shown and the headline is the mean of the 3 per-run rates with
+  the min–max range and no pooled interval (repeats measure LLM variance, not sample size). The
+  set is small, single-author and synthetic, and was not written blind (§12).
+- [x] RAG retrieval accuracy on fixed-seed eval set (n = 19 held-out in-scope questions)
       Definition (fixed 2026-09-19, before any run): on held-out in-scope questions, top-1 hit
       rate and hit@k (k = the k the graph actually uses) — a hit is the expected chunk `docId`
       appearing in the retrieved set.
-- [ ] RAG answer correctness (hand-scored or rubric-scored) on same eval set
+      **Result (computed once, no LLM), graph as run (plan filter inferred): top-1 73.7% (14/19)
+      [51.2%–88.2%]; hit@3 84.2% (16/19) [62.4%–94.5%].** Secondary, unfiltered vector search:
+      top-1 73.7% (14/19); hit@3 78.9% (15/19). Note: with a plan filter only 4 chunks are
+      candidates, so hit@3 is lenient. The 3 misses (`fact-10`, `hard-09`, `hard-12`) each had the
+      expected chunk absent from the top 3, and the model correctly replied it lacked context.
+- [x] RAG answer correctness (hand-scored or rubric-scored) on same eval set
       Definition (fixed 2026-09-19): fraction of held-out in-scope questions whose final answer
       contains all of the row's reference key facts (checked by script, then hand-reviewed);
       binary. An abstention on an in-scope question counts as incorrect.
-- [ ] RAG response groundedness on same eval set (added 2026-09-19)
+      **Result: 73.7% (14/19) [51.2%–88.2%] in each of the 3 runs; headline mean 73.7%, range
+      73.7%–73.7%.** The key-fact script alone gave 12/19, 11/19, 11/19; 8 of the 57 in-scope run
+      records were hand-reviewed to correct (`hard-08` ×3, `para-08` ×3, `para-09` ×2: the answer states the
+      fact in different words than the literal key-fact phrases), recorded with reasons in
+      `data/eval/reviews.jsonl`. The 5 incorrect questions were identical in every run: 3
+      retrieval misses answered "insufficient context" (above) and 2 (`hard-01` LASIK,
+      `hard-02` suicide) abstained because the groundedness gate rejected correct, near-verbatim
+      answers (NLI 0.00–0.41 vs threshold 0.5) — the over-abstention 7a predicted. Zero variance
+      across runs is expected at temperature 0 with a small set; it is not evidence the number
+      is stable under other questions.
+- [x] RAG response groundedness on same eval set (added 2026-09-19)
       Definition (fixed 2026-09-19): mean NLI entailment score of final, non-abstained answers
       against their retrieved chunks. Reported both before and after the gate, alongside the
       share of answers abstained, since abstaining raises the post-gate number.
-- [ ] RAG abstention correctness on out-of-scope questions (added 2026-09-19)
+      **Result: mean NLI before the gate 0.735 (per run 0.681, 0.758, 0.767; first generated
+      answer per question, n = 17–18 per run); after the gate 0.942 (per run 0.936, 0.961,
+      0.928; final answered outputs, n = 15 per run).** Generated-but-not-answered (rejected by
+      the gate): 3/18, 2/17, 3/18. The post-gate number is high partly *because* the gate rejects
+      low scorers, and the gate also rejects faithful answers (§12). NLI limits (numbers,
+      negation, long compound sentences) apply. Secondary, hand-written unsupported answers: 0 of
+      11 held-out probes passed the gate at 0.5, whereas on the calibration split 4 of 12 did
+      (probes are hand-written and few; together 4 of 23 passed).
+- [x] RAG abstention correctness on out-of-scope questions (added 2026-09-19)
       Definition (fixed 2026-09-19): fraction of held-out out-of-scope questions (including
       decision-seeking ones) that the system refused or abstained on rather than answered.
+      **Result: 90.0% (9/10) [59.6%–98.2%] in each of the 3 runs.** All 5 out-of-scope
+      questions abstained. Of the 5 decision-seeking questions, the guardrail refused only 2
+      (`dec-02`, `dec-09`; 40%); `dec-03` and `dec-05` got past it but abstained (the model said
+      it lacked context), and **`dec-07` ("would you sign off on a $2,500 dental claim?") was
+      answered in all 3 runs** with a faithful policy statement ("a claim requesting more than
+      $2,000.00 is denied in full") that in effect signals the outcome — the one miss. Across both
+      splits the guardrail refused 3 of 9 decision-seeking rows. Adjudication itself is
+      unaffected (the service has no write path to claims), but the guardrail's regexes are
+      best-effort and this is where they leak.
 - [ ] Test coverage % (Java services combined, and RAG service separately)
 - [ ] CI pipeline runtime (before/after any optimization, if you do one)
 - [ ] End-to-end event latency: time from `claim.submitted` publish to `claim.adjudicated` publish (measured, not estimated)
@@ -385,6 +428,120 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
 
+- **2026-09-21** — Phase 7b final held-out results (numbers are in §11; this entry records how
+  to read them). Held-out n = 29 (19 in-scope); 3 repeats; threshold 0.5, not calibrated.
+  **Headlines, per the repeat rule fixed in the freeze entry (mean of per-run rates, range, no
+  pooled interval; Wilson intervals with n = questions):** retrieval top-1 73.7% (14/19), hit@3
+  84.2% (16/19); answer correctness 73.7% (14/19) in all 3 runs; abstention correctness 90.0%
+  (9/10) in all 3 runs; mean NLI 0.735 before the gate, 0.942 after, with 3/18, 2/17, 3/18
+  answers rejected by the gate.
+
+  **How to read them.**
+  - *Where the 26% of in-scope failures come from.* Not the LLM inventing things: 3 of the 5
+    failing questions are retrieval misses (`fact-10`, `hard-09`, `hard-12`: expected chunk not
+    in the top 3, so the model correctly said it lacked context), and 2 (`hard-01` LASIK,
+    `hard-02` suicide) are the gate rejecting *correct, near-verbatim* answers (NLI 0.00–0.41).
+    That confirms 7a's diagnosis and the calibration finding, now on held-out data: the gate's
+    dominant cost is over-abstention, and that cost is not something a threshold can buy back on
+    this corpus.
+  - *What the gate did and did not do.* It blocked no fabricated answer in the scored run —
+    there were none to block among real answers (on review every answered output was faithful
+    to its chunks, apart from the `para-09` labelling imprecision noted below); its measured safety value is the probe result: 0/11 held-out probes and 8/12
+    calibration probes rejected at 0.5 (4 of 23 accepted), i.e. incomplete. The post-gate NLI
+    mean (0.942) is inflated by selection (low scorers are removed) and should not be quoted
+    without the before-gate mean and the rejection counts.
+  - *Zero run-to-run variance.* Correctness and abstention were identical in all 3 runs, and
+    the failing questions were the same each time. At temperature 0 on 29 questions that says
+    the system is stable on *these* questions, not that the rates would hold on new ones; the
+    interval, computed on n = 19 questions, is the honest uncertainty (correctness
+    [51.2%–88.2%]). Providers varied a little (Groq answered 33 of 45 answered records, Gemini
+    12); 10 questions hit a Groq 429, were retried after 30 s, and none stayed errored.
+  - *Guardrail finding.* 3 of the 5 held-out decision-seeking questions were not refused; 2
+    were caught downstream (the model said it lacked context), and `dec-07` was answered with a
+    faithful policy statement that in effect signals the outcome. Across both splits the
+    guardrail refused 3 of 9. Reported, not fixed: the regexes are documented as best-effort,
+    and the enforcement that matters is that the service has no write path to claims.
+  - *Hand review.* The key-fact script under-counted by 2 or 3 per run; 8 records were
+    corrected with reasons in `data/eval/reviews.jsonl` (answers stating the fact in different
+    words than the literal key-fact phrases). No answer was reviewed *down* (no script "correct"
+    was overturned). One minor imprecision was noted, not scored against: `para-09` runs 2–3
+    call the 30-day period "preventive-service".
+  - *Provenance.* The run was made from commit `4e03ab3` plus uncommitted code and data
+    changes (the `hard-10` key-fact restoration, comment-only edits to `config.py` /
+    `groundedness.py` / `.env.example`, `reviews.jsonl`); the content hashes in the run file's
+    `_meta.fingerprint` identify it exactly.
+
+  **Not claimed anywhere:** a calibrated threshold; a groundedness guarantee; correctness on
+  questions outside this 51-row synthetic set; that the guardrail catches decision-seeking
+  phrasing in general.
+- **2026-09-21** — Phase 7b calibration result (calibration split only; written before any
+  held-out run). **Finding: on this corpus the NLI gate does not cleanly separate faithful from
+  fabricated answers, which is why no threshold satisfied the criterion.** At the fallback
+  threshold of 0.5, **4 of 12 adversarial probes are still accepted** and **8 of 27 faithful
+  attempts score under 0.5 anyway** (19/27 accepted). The failures run in both directions at
+  once, so no threshold on the grid can fix them:
+  - *Fabrication accepted.* `probe-16` ("basic services include crowns, bridges, and root
+    canals" — swaps terms already present in the chunk) scores NLI 0.994, `probe-20` (waiting-
+    period ordering reversed) 0.899, `probe-23` (wrong anchor visit) 0.770, `probe-17`
+    (contradicts the lens-upgrade rule) 0.518. `probe-16` is accepted at every grid threshold up
+    to 0.95. These are exactly the negation / term-swap cases the gate's docstring lists as NLI's
+    weak spot; the numeric check caught only the probes whose numbers were unsupported
+    (`probe-07`, `probe-19`).
+  - *Faithful answers rejected.* Near-verbatim answers scored 0.002 (`para-03` Groq), 0.012
+    (`para-06` Groq), 0.016 (`fact-11` Gemini), 0.044 (`fact-04` Groq), 0.243 (`fact-09` Groq).
+    Raising the threshold to reject `probe-16` would reject most faithful answers as well (12/27
+    accepted at 0.90, 8/27 at 0.95, while `probe-16` still passes).
+
+  **Outcome per the rule fixed in the freeze entry: keep the provisional 0.5, report, no model
+  or criterion change** (owner decision). 0.5 is therefore *not a calibrated value*; the comments
+  in `config.py`, `groundedness.py` and `.env.example` now say so. The gate's remaining safety
+  value is partial: it rejected 8 of 12 probes and the one real unfaithful answer, and the
+  provider chain recovers many falsely rejected faithful answers (at 0.5, 13 of 14 in-scope
+  calibration questions were answered by the chain; 12 of 14 by the key-fact script, 13 of 14
+  once `hard-03` is hand-reviewed — informational, calibration split, not a §11 number).
+
+  **What the threshold was chosen from (calibration log):** 22 calibration questions; 28
+  recorded provider answers, of which **27 faithful and 1 unfaithful** (real); **12 adversarial
+  probes** (unfaithful by construction) — 13 unfaithful in total; the collect run recorded 35
+  provider replies (28 answers, 7 INSUFFICIENT_CONTEXT; the 2 rate-limited calls were retried and
+  are not counted). **Plateau: none** (no grid value
+  rejects all 13). Sweep, faithful accepted / unfaithful accepted of 13: 0.05–0.20 21/5, 0.25
+  20/5, 0.30–0.50 19/4, 0.55 19/3, 0.60–0.70 18/3, 0.75 16/3, 0.80 16/2, 0.85 15/2, 0.90 12/1,
+  0.95 8/1. Data: `data/eval/runs/2026-09-21-{collect,probes,retrieval}-calibration.jsonl`,
+  labels in `data/eval/labels_calibration.jsonl`.
+
+  **Limitation — the labels were not blind.** The faithful/unfaithful labels were made while the
+  NLI scores were printed next to the answers. Each label rests on the answer text against the
+  retrieved chunks (see the per-label notes), and only one label was a judgment call
+  (`dec-08` attempt 0, labeled unfaithful; confirmed by the owner; it is rejected at every
+  threshold by the numeric check regardless, so it cannot move the result). It is still a
+  limitation: blind labeling (scores hidden until every label is written) is a **future
+  improvement, deliberately not redone now**.
+
+  **Other observations on the calibration split (findings, not fixed here).** (1) *Guardrail:*
+  only 1 of 4 decision-seeking rows was refused (`dec-01`); `dec-04`, `dec-06` and `dec-08` got
+  past it (in the real graph they then abstained — see the held-out run for the scored
+  behaviour). (2) *Numeric check vs the user's own number:* Groq's `dec-08` answer restated the
+  user's "$4,800", which the answer-level numeric check flags as unsupported because it is not
+  in any chunk. (3) *Provider variance:* Groq replied INSUFFICIENT_CONTEXT on `hard-05` although
+  the right chunk was retrieved, and on 4 of the out-of-scope rows (the correct behaviour
+  there). (4) *Retrieval:* `hard-11` ranked `life_definitions` above `life_exclusions` (the
+  answer still came from the top 3). (5) *Rate limits:* Groq returned two 429s (`hard-10`,
+  `dec-06`); each question was retried once after 30 s and succeeded (logged per record).
+  (6) *Key-fact matcher:* it is word-bounded, so `hard-03`'s correct answer "…before the
+  exclusions" does not match the alternative "before the exclusion"; handled as a hand-review
+  override in `data/eval/reviews.jsonl`, not by editing the frozen key facts. The same
+  false-negative can recur on held-out and will be handled the same way.
+- **2026-09-21** — Correction to the freeze entry below: `hard-10` key facts. At the owner's
+  review the tightening of `hard-10` replaced its list wholesale with "does not reset",
+  "applies once at initial enrollment", "does not reset annually", which unintentionally also
+  dropped "does not face" — the phrase the source chunk itself uses ("does not face a second
+  waiting period at renewal") and one the owner had not asked to remove. It was restored to
+  `eval_set.jsonl` after the freeze commit (`4e03ab3`); the bare "once" and the other removed
+  alternatives stay removed. Effect: `hard-10` is a calibration row and its key facts feed only
+  the key-fact display and the flags check, not any label or threshold decision, and this was
+  done before any held-out run. The collect run's `_meta` fingerprint (which hashes the eval
+  set) therefore predates this one-line correction.
 - **2026-09-21** — Phase 7b eval freeze, written **before any LLM run** (issue #18, branch
   `phase-7b-rag-eval-frontend`). Everything below is fixed now; if a real number is lower than
   hoped, the description changes, not the eval.

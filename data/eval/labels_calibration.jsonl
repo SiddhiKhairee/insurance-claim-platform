@@ -1,0 +1,28 @@
+{"id": "fact-04", "attempt_index": 0, "provider": "groq", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks; NLI scored it low despite near-verbatim support"}
+{"id": "fact-04", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "fact-08", "attempt_index": 0, "provider": "groq", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "fact-08", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "fact-09", "attempt_index": 0, "provider": "groq", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks; long compound sentence"}
+{"id": "fact-09", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "fact-11", "attempt_index": 0, "provider": "groq", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "fact-11", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks; NLI scored it low despite near-verbatim support"}
+{"id": "fact-12", "attempt_index": 0, "provider": "groq", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "fact-12", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "para-02", "attempt_index": 0, "provider": "groq", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks; 'only when' matches 'absent a qualifying ...'"}
+{"id": "para-02", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "para-03", "attempt_index": 0, "provider": "groq", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks; applies the 48-hour waiver to 'same day'; NLI 0.002"}
+{"id": "para-03", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "para-05", "attempt_index": 0, "provider": "groq", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "para-05", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "para-06", "attempt_index": 0, "provider": "groq", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks; correctly separates prescribed from over-the-counter"}
+{"id": "para-06", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "hard-03", "attempt_index": 0, "provider": "groq", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks; key-fact script misses it ('exclusions' vs 'exclusion')"}
+{"id": "hard-03", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "hard-04", "attempt_index": 0, "provider": "groq", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "hard-04", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "hard-10", "attempt_index": 0, "provider": "groq", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "hard-10", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks; key-fact script misses it ('does not face a second')"}
+{"id": "hard-11", "attempt_index": 0, "provider": "groq", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "hard-11", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks"}
+{"id": "dec-08", "attempt_index": 0, "provider": "groq", "faithful": false, "note": "JUDGMENT CALL: asserts a definite denial where the chunk says a lapse 'can' lead to denial (lapse date vs onset unknown); restates the user's $4,800, which the numeric check flags"}
+{"id": "dec-08", "attempt_index": 1, "provider": "gemini", "faithful": true, "note": "faithful: every claim is stated in the retrieved chunks; restates the definition, does not answer the question"}

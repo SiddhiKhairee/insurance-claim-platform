@@ -31,8 +31,10 @@ class Settings:
     groq_model: str
     gemini_model: str
     nli_model: str
-    # PROVISIONAL: a placeholder, not a calibrated value. Phase 7b calibrates this on the
-    # eval set's calibration split and replaces it.
+    # 0.5 is NOT a calibrated value. Phase 7b's calibration (PLAN.md section 12, 2026-09-21) found
+    # no threshold that rejects every unfaithful attempt on this corpus, so by the rule fixed
+    # beforehand the provisional 0.5 was kept. At 0.5 the gate still accepted 4 of 12 adversarial
+    # probes and scored 8 of 27 faithful answers under the threshold.
     groundedness_threshold: float
     retrieval_top_k: int
     provider_timeout_seconds: float

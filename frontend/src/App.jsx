@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import AssistantWidget from './AssistantWidget.jsx'
 import ClaimForm from './ClaimForm.jsx'
 import ClaimStatus from './ClaimStatus.jsx'
 
@@ -25,6 +26,10 @@ function App() {
         ) : (
           <ClaimForm onSubmitted={setSubmittedClaim} />
         )}
+      </div>
+
+      <div className="card">
+        <AssistantWidget claimId={submittedClaim?.claimId} />
       </div>
     </main>
   )

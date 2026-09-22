@@ -4,8 +4,10 @@
    (retrieved policy chunk or the rendered claim record) one pair at a time, because chunks are
    ~300-450 tokens and the whole context cannot fit one 512-token pass. A sentence's score is the
    max entailment probability over premises; the answer's score is the MIN over sentences, so one
-   unsupported sentence fails the whole answer. Below the threshold -> fail. The threshold is
-   PROVISIONAL until Phase 7b calibrates it on the eval set's calibration split.
+   unsupported sentence fails the whole answer. Below the threshold -> fail. The threshold (0.5)
+   is NOT calibrated: Phase 7b's calibration found no threshold that separates faithful from
+   fabricated answers on this corpus, so the provisional value was kept (PLAN.md section 12,
+   2026-09-21).
 
 2. Deterministic numeric check (extension to the 2026-09-19 NLI-only gate description). Every
    number / dollar amount / percentage in the answer, normalized so "$5,000", "5000" and

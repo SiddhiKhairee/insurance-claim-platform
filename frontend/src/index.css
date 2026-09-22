@@ -216,3 +216,60 @@ body {
 .actions {
   margin-top: 1.5rem;
 }
+
+.card + .card {
+  margin-top: 1.5rem;
+}
+
+.assistant-result {
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  margin-top: 1.25rem;
+  font-size: 0.92rem;
+}
+
+.assistant-result p {
+  margin: 0 0 0.5rem;
+}
+
+.assistant-result p:last-child {
+  margin-bottom: 0;
+}
+
+.assistant-result-title {
+  font-weight: 600;
+}
+
+.assistant-answered {
+  background: var(--approved-bg);
+  color: var(--text);
+  border: 1px solid rgba(26, 127, 55, 0.25);
+}
+
+/* A refusal is the system working as designed, so it is informational, not an error. */
+.assistant-refused {
+  background: #eef3fd;
+  color: var(--text);
+  border: 1px solid rgba(47, 111, 235, 0.25);
+}
+
+.assistant-abstained {
+  background: var(--pending-bg);
+  color: var(--pending);
+  border: 1px solid rgba(154, 103, 0, 0.25);
+}
+
+.assistant-sources-title {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-top: 0.75rem;
+}
+
+.assistant-sources {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-transform: capitalize;
+}
