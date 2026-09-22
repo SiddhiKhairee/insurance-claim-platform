@@ -55,6 +55,7 @@ def test_gemini_request_and_response_parsing():
     assert gemini(handler, key="secret").generate("sys", "usr") == "Hi there."
     assert seen["url"].endswith("/models/gemini-model:generateContent")
     assert seen["key"] == "secret"
+    assert seen["body"]["generationConfig"]["temperature"] == 0
     assert seen["body"]["systemInstruction"]["parts"][0]["text"] == "sys"
     assert seen["body"]["contents"][0]["parts"][0]["text"] == "usr"
 

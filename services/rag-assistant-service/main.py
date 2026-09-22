@@ -1,9 +1,11 @@
 import logging
+import os
 import threading
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 
 from assistant.config import Settings
 from assistant.graph import Assistant
@@ -48,6 +50,15 @@ def create_app(
         yield
 
     app = FastAPI(title="Claims & Policy Assistant", lifespan=lifespan)
+
+    # Same env var and default as claims-intake-service's CORS config. Read here rather than via
+    # Settings, which is only built inside the background loader (Settings requires MONGODB_URI).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[os.environ.get("CORS_ALLOWED_ORIGIN") or "http://localhost:3000"],
+        allow_methods=["POST"],
+        allow_headers=["Content-Type"],
+    )
 
     @app.get("/health")
     def health() -> dict[str, str]:

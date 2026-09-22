@@ -6,6 +6,7 @@ import { submitClaim, getClaim } from './api.js'
 vi.mock('./api.js', () => ({
   submitClaim: vi.fn(),
   getClaim: vi.fn(),
+  askAssistant: vi.fn(),
 }))
 
 describe('App', () => {
@@ -29,5 +30,22 @@ describe('App', () => {
       expect(screen.getByRole('heading', { name: /claim status/i })).toBeInTheDocument(),
     )
     expect(screen.getByText('Claim ID: abc-123')).toBeInTheDocument()
+  })
+
+  it('offers the assistant and prefills its claim ID from the submitted claim', async () => {
+    submitClaim.mockResolvedValue({ claimId: 'abc-123', status: 'SUBMITTED' })
+    getClaim.mockResolvedValue({ claimId: 'abc-123', status: 'SUBMITTED' })
+
+    render(<App />)
+    expect(screen.getByLabelText(/^question$/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/claim id \(optional\)/i)).toHaveValue('')
+
+    fireEvent.change(screen.getByLabelText(/employee id/i), { target: { value: 'EMP-1' } })
+    fireEvent.change(screen.getByLabelText(/amount requested/i), { target: { value: '100' } })
+    fireEvent.click(screen.getByRole('button', { name: /submit claim/i }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/claim id \(optional\)/i)).toHaveValue('abc-123'),
+    )
   })
 })

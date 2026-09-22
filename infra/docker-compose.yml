@@ -71,6 +71,9 @@ services:
       - ../.env
     environment:
       CLAIMS_INTAKE_URL: http://claims-intake-service:8082
+      # Origin the browser loads the frontend from (same pattern as claims-intake-service).
+      # Local dev only; Phase 8 sets the real deployed origin.
+      CORS_ALLOWED_ORIGIN: http://localhost:3000
     depends_on:
       - claims-intake-service
     ports:
@@ -89,6 +92,9 @@ services:
       context: ../frontend
       args:
         VITE_CLAIMS_API_URL: http://localhost:8082
+        # Baked in at build time and called from the browser, so it must be the address the
+        # browser can reach. Local dev only; Phase 8 sets the real deployed URL.
+        VITE_RAG_API_URL: http://localhost:8000
     ports:
       - "3000:80"
 
