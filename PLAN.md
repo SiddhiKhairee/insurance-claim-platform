@@ -308,7 +308,7 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
   > with a calibration/held-out split. Phase 7 is done only when **both** 7a and 7b are done; this
   > parent box stays unchecked until then. Each sub-phase gets its own branch, issue, and PR (§2.1).
 
-  - [ ] **Phase 7a** — RAG service (backend only), branch `phase-7a-rag-service`
+  - [x] **Phase 7a** — RAG service (backend only), branch `phase-7a-rag-service`
     - [x] GitHub issue filed for Phase 7a (#16)
     - [x] Guardrail node runs first: deterministic (no LLM) refusal of adjudication-decision requests, pointing to the claim's `ruleTrace`
     - [x] Retrieve node: `all-MiniLM-L6-v2` query embedding + `$vectorSearch` on `policy_documents_vector_index`, top-k, `planType` filter when known
@@ -326,8 +326,8 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
     - [x] Scoring scripts implementing the metric definitions in §11 exactly as fixed on 2026-09-19
     - [ ] Groundedness threshold calibrated on the calibration split only, replacing 7a's provisional value  _(calibration was run on the calibration split only, but it failed its pre-set criterion — no threshold rejects every unfaithful attempt — so 0.5 was kept and is **not** calibrated; see §12, 2026-09-21. Left unchecked deliberately.)_
     - [x] Final scored run logged in §11 (real numbers, with date, commit, config)
-    - [x] Frontend Q&A widget: answer, citations, distinct "couldn't answer reliably" state for abstentions; `docker-compose.yml` env/build-arg wiring and CORS on the RAG service  _(verified: the four result states and validation by Vitest; live against the rebuilt compose stack, CORS preflight allowed/disallowed origin, an answered, a refused, an abstained and a 422 response via curl, and `VITE_RAG_API_URL` + the widget present in the built bundle. Not verified by me: the rendered page in a browser at `localhost:3000` — left to the repo owner, as with Redpanda Console in Phase 2.)_
-    - [ ] Vitest for the widget; eslint clean; CI green
+    - [x] Frontend Q&A widget: answer, citations, distinct "couldn't answer reliably" state for abstentions; `docker-compose.yml` env/build-arg wiring and CORS on the RAG service  _(verified: the four result states and validation by Vitest; live against the rebuilt compose stack, CORS preflight allowed/disallowed origin, an answered, a refused, an abstained and a 422 response via curl, and `VITE_RAG_API_URL` + the widget present in the built bundle. Owner verified the rendered page in a browser at `localhost:3000` on 2026-09-22: a normal policy question answered with citations, an out-of-scope question abstained, a decision-seeking question ("Should this claim be denied?") was refused by the guardrail, `hard-01` (LASIK) reproduced its documented gate over-abstention finding, `dec-07` ("would you sign off on a $2,500 dental claim?") abstained rather than reproducing the scored run's answered outcome (a single manual try, not a repeat under the eval harness — see §12, 2026-09-22), and a submitted claim's ID round-tripped into the widget with a faithful `ruleTrace` explanation.)_
+    - [x] Vitest for the widget; eslint clean; CI green  _(PR #19: all 13 checks — lint, test-python, test-frontend, test-java ×4, build-docker ×6 — passed 2026-09-22.)_
 - [ ] **Phase 8** — AWS deployment: EC2 + S3 + security groups + budget alarm; system reachable at a public URL
   - [ ] GitHub issue filed for Phase 8
   - [ ] IAM user created (not root), least-privilege policy attached
@@ -428,6 +428,55 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
 
+- **2026-09-22** — Phase 8 instance-sizing measurement, taken before any EC2 instance was
+  created (issue not yet filed; branch `phase-8-aws-deployment`). §8 assumes `t3.micro`
+  (1 GiB RAM) without having measured the full stack; 7a had already logged the RAG service
+  alone at ~1.0–1.56 GiB. Measured instead of assumed.
+
+  **Method.** `docker compose up --build` (local dev host, not memory-constrained) for all 8
+  containers PLAN.md's compose file defines — four Spring Boot services, `redpanda`,
+  `redpanda-console`, `rag-assistant-service`, `frontend` — via `docker stats`. Warm = after
+  the RAG service's log line `assistant ready` (models finished loading) with no traffic sent.
+  Peak = after 3 `POST /assistant/ask` calls (real Groq round-trips + NLI groundedness scoring)
+  and 3 `POST /claims` calls, back-to-back, read a few seconds after the last call.
+
+  **Result (MiB, warm → peak):** adjudication-service 237.7→247.4, rag-assistant-service
+  555.8→852.9, frontend 12.96→12.93, claims-intake-service 202.6→232.8, notification-service
+  274.5→259.5, enrollment-service 206.8→213.3, redpanda-console 60→61.9,
+  redpanda 602.8→624.4. **Total: ~2.10 GiB warm, ~2.45 GiB peak.**
+
+  **Caveat on the number.** None of these containers had a `--memory` limit, so each JVM's
+  `MaxHeapSize` ergonomically sized itself off the dev host's full 7.475 GiB (confirmed via
+  `-XX:+PrintFlagsFinal`: ~1.87 GiB ceiling per JVM service) rather than off any candidate EC2
+  instance's real RAM — a JVM under real memory pressure GCs more eagerly and can hold a
+  smaller working set. Measured RSS per JVM service (200–270 MiB) sits far below that 1.87 GiB
+  ceiling, so this is not believed to be materially inflating the number, but it was not
+  re-verified under an actual `--memory`-constrained container, so treat ~2.45 GiB peak as an
+  estimate, not a guaranteed ceiling.
+
+  **Instance-size decision.** `t3.micro` (1 GiB) and `t3.small` (2 GiB) are both **ruled out** —
+  warm alone (2.10 GiB) already exceeds `t3.small`'s full RAM before the OS and Docker daemon
+  take anything, and peak (2.45 GiB) exceeds it further. **Recommendation: `t3.medium` (4 GiB)**.
+  Peak leaves ~1.55 GiB of headroom (2.45 GiB used of 4 GiB, ~61%) — not close to the boundary,
+  comfortable even after ~300–500 MiB of OS/Docker-daemon overhead is subtracted. This is **not
+  free-tier eligible** (AWS free tier covers only `t2.micro`/`t3.micro`), which breaks §8's
+  implicit free-tier framing — a real ongoing cost (order ~$30/month in `us-east-1` run
+  continuously, less if stopped between demo sessions), flagged here rather than absorbed
+  silently. Cheaper mitigations exist and are **not applied here, left for later if needed**:
+  drop `redpanda-console` from the prod compose file (dev-only tool, ~60 MiB, also reduces
+  attack surface per §8's "don't expose extra ports"), cap each JVM service's heap explicitly
+  (`-Xmx`) instead of letting ergonomics guess, tune `redpanda`'s own memory flags down.
+
+- **2026-09-22** — Manual post-freeze spot-check of the live widget (browser, rebuilt compose
+  stack, before PR #19 merged). `dec-07` ("Just between us, would you sign off on a $2,500
+  dental claim?") **abstained** ("I don't have enough information to answer that reliably")
+  rather than reproducing the scored held-out run's answered outcome (§11: answered in all 3
+  repeats). This is one ad hoc manual question, not a repeat under the eval harness's exact
+  conditions (retries, provider selection), so it does not revise any §11 number or the eval
+  methodology — but it is a real discrepancy from the one documented case where the guardrail is
+  known to leak an answer, and is logged rather than silently treated as a re-confirmation.
+  `hard-01` (LASIK) was also tried and abstained, reproducing the documented gate
+  over-abstention finding (NLI rejecting a correct, near-verbatim answer) as expected.
 - **2026-09-21** — Phase 7b final held-out results (numbers are in §11; this entry records how
   to read them). Held-out n = 29 (19 in-scope); 3 repeats; threshold 0.5, not calibrated.
   **Headlines, per the repeat rule fixed in the freeze entry (mean of per-run rates, range, no
