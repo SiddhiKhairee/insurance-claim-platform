@@ -146,6 +146,11 @@ Message schema: keep it JSON to start (not Avro — Avro adds a schema registry 
 { "claimId": "uuid", "status": "approved|denied", "decisionReason": "string", "ruleTrace": ["rule names applied"], "adjudicatedAt": "iso8601" }
 ```
 
+`claim.appeal-decided` payload (added in Phase 8b Part 1, 2026-09-28; see §12): produced by Claims Intake when an admin decides an appeal, consumed by Notification. `outcome` is lowercase, matching `claim.adjudicated`'s `status`; Mongo keeps the uppercase `UPHELD`/`OVERTURNED`, as it does `APPROVED`/`DENIED`.
+```json
+{ "claimId": "uuid", "outcome": "upheld|overturned", "reviewerNote": "string", "decidedAt": "iso8601" }
+```
+
 Spring side: `@KafkaListener` for consumers, `KafkaTemplate<String, String>` for producers, Jackson for JSON (de)serialization. Keep a `DeadLetterPublishingRecoverer` on each consumer from day one — it's a small amount of extra config and it's exactly the kind of "production support and troubleshooting" concern the JD calls out.
 
 ---
@@ -339,6 +344,62 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 
   > Phase 8's parent box stays unchecked while the attachment item is deferred. The owner decides
   > whether Phase 8 counts as done without it.
+
+  > **Attachments given a purpose on 2026-09-28 (see §12 entry of that date).** The attachment
+  > item above is carried by Phase 8b below: supporting documents are uploaded when a claimant
+  > **appeals** a denied claim, stored in S3, and read only by a human admin who upholds or
+  > overturns the denial. The rule engine still makes every first decision; no LLM ever reads a
+  > document or decides an appeal.
+
+  - [ ] **Phase 8b** — Appeals, supporting documents (S3) and admin review panel. Design and constraints: §12, 2026-09-28 (scope entry and admin signup code entry).
+
+    > **Split into Part 1 and Part 2 on 2026-09-28 (see §12 entry of that date).** Same scope as
+    > first planned; the items are grouped into two sub-phases, each with its own branch, issue,
+    > plan approval, and PR (§2.1). Part 2 starts only after Part 1 is merged. Phase 8b is done
+    > only when **both** parts are done; this parent box stays unchecked until then.
+
+    - [ ] **Phase 8b Part 1** — Backend: appeals, documents, admin accounts, event. Branch `phase-8b1-appeals-backend`, created from `plan-attachments-scope` so the 8b planning commits land with this PR
+      - [x] GitHub issue filed for Phase 8b Part 1 (#23)
+      - [x] Plan approved, confirming or changing the §12 recommendations (service placement, claim `appeal` sub-document, auth approach, `ADMIN_SIGNUP_CODE` gate, local-disk storage for dev)  _(approved 2026-09-28 with owner amendments. Two changes: a separate `appeals` collection instead of the sub-document, and the admin API at `/api/admin/**` instead of `/admin/**`. See §12, 2026-09-28, Phase 8b Part 1 entry.)_
+      - **Appeals and documents (claims-intake-service)**
+        - [ ] Storage interface with an S3 implementation (instance role, EC2) and a local-disk implementation (dev), chosen by config  _(built. Local disk verified live. S3 is tested **only against a mocked client**, and the real bucket and instance role are first used in Part 2's EC2 pass. Left unchecked until then.)_
+        - [x] `appeal` sub-document on the claim: reason, document keys/filenames/sizes, `submittedAt`, status PENDING_REVIEW → UPHELD/OVERTURNED, reviewer, `decidedAt`, reviewer note. The engine's `status`/`decisionReason`/`ruleTrace` are never modified  _(built as the `appeals` collection with these fields, not a sub-document; see §12)_
+        - [x] `POST /claims/{claimId}/appeal` (multipart: reason + at least one document). Rejects: claim not DENIED, already appealed, no document, wrong type (PDF/PNG/JPEG only), too large or too many files
+        - [x] Public `GET /claims/{claimId}` shows appeal status/outcome but **no S3 keys or document links**
+        - [x] Upload limits raised consistently in Spring (multipart) and nginx (`client_max_body_size`)
+      - **Admin accounts and review (claims-intake-service)** _(paths are `/api/admin/**`, see §12)_
+        - [x] `admin_users` collection; `POST /admin/signup` gated by `ADMIN_SIGNUP_CODE` (constant-time compare; wrong code rejected with no account created; unset/empty code means sign-up is disabled, and all three are tested); `POST /admin/login`; bcrypt password hashes; signed session token (secret in `.env`)
+        - [x] Spring Security: every `/admin/**` endpoint except signup/login requires the admin role; 401/403 otherwise
+        - [x] `GET /admin/appeals` lists appealed claims (pending first, filterable by status)
+        - [x] `GET /admin/appeals/{claimId}` returns the claim, the rule engine's decision, `decisionReason`, `ruleTrace`, and document metadata
+        - [x] `GET /admin/appeals/{claimId}/documents/{docId}` streams the document (admin only; bucket stays private)
+        - [x] `POST /admin/appeals/{claimId}/decision` with UPHOLD or OVERTURN and a required note. Records reviewer + time. OVERTURN sets the shown status to approved-on-appeal. A decision is final (can't be decided twice)
+        - [x] Publishes `claim.appeal-decided` (plain JSON) when an appeal is decided
+      - **Notification service**
+        - [x] Consumes `claim.appeal-decided` and logs the outcome to `notifications_log`
+      - **Config, docs, tests**
+        - [x] `.env.example`: `ADMIN_SIGNUP_CODE`, token secret, `S3_BUCKET`, storage mode. Prod compose passes them through
+        - [x] Tests: JUnit + Mockito for appeal validation and decisions (mocked storage/S3), MockMvc + Spring Security for admin auth (401/403/200), notification consumer test. `ruleTrace` is unchanged after an appeal, asserted explicitly
+        - [x] Backend flow verified locally via curl (local-disk storage): deny → appeal with document → admin sign-up/login → list → view + download document → overturn and uphold paths → public `GET /claims/{id}` shows outcome with no keys → notification logged
+        - [x] `CLAUDE.md` architecture reference updated (new `admin_users` collection, `claim.appeal-decided` topic, admin role)
+        - [x] CI green (lint, test-java, build-docker)  _(PR #24: all 13 checks, including lint, test-java ×4, test-python, test-frontend and build-docker ×6, passed 2026-09-28)_
+    - [ ] **Phase 8b Part 2** — Frontend, RAG boundaries, live deploy. Branch `phase-8b2-appeals-frontend-deploy` (start only after Part 1 is merged)
+      - [ ] GitHub issue filed for Phase 8b Part 2
+      - [ ] Plan approved
+      - **RAG assistant: boundaries (checked, not assumed)**
+        - [ ] rag-assistant-service has no access to documents or document references (the claim context it receives excludes them)
+        - [ ] When explaining a claim, it reports a recorded appeal outcome accurately (rule decision, then the human decision) and never predicts or suggests one
+        - [ ] Guardrail refuses appeal-outcome questions ("will my appeal be approved?", "should the admin overturn this?"), with pytest cases; eval set re-run to confirm no regression, logged in §11/§12
+      - **Frontend**
+        - [ ] Client-side routing: claimant pages and `/admin`
+        - [ ] Claimant: "Appeal" action on a DENIED claim (reason + file picker with the same type/size limits), appeal status and outcome shown on the claim status view
+        - [ ] Admin: sign-up (with signup code), login, logout; appealed-claims list; claim review page showing the rule decision, `ruleTrace`, document links, and Uphold/Overturn with a required note
+        - [ ] Vitest for the appeal form and admin pages
+      - **Verify, docs, deploy**
+        - [ ] Full flow verified locally in a browser (local-disk storage): deny → appeal with document → admin sign-up/login → review → overturn and uphold paths → claimant sees outcome → notification logged
+        - [ ] Verified live on EC2: document lands in the private S3 bucket through the instance role, admin can open it, public claim response exposes no keys; test data and S3 objects cleaned up; **instance stopped afterwards**
+        - [ ] README (incl. plain-HTTP and no-claimant-accounts limits) and `infra/aws/README.md` updated
+        - [ ] CI green (lint, test-java, test-python, test-frontend, build-docker)
 - [ ] **Phase 9** — Testing hardening: Testcontainers integration tests, Spock specs, Playwright E2E, CI green end-to-end
   - [ ] GitHub issue filed for Phase 9
   - [ ] Testcontainers integration tests for Kafka + Mongo
@@ -430,6 +491,266 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 ---
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
+
+- **2026-09-28** — Phase 8b Part 1 implemented (issue #23, branch `phase-8b1-appeals-backend`).
+  Backend only: claims-intake-service (appeals, documents, admin accounts, review) and the
+  notification-service consumer. The plan was approved with owner amendments; this entry records
+  what changed from the 8b scope entry below, and every limit the amendments asked to state here.
+
+  **Owner decisions (these replace parts of the 8b scope entry below):**
+  - **Appeals live in their own `appeals` collection, not in an `appeal` sub-document on the claim.**
+    Why: adjudication-service writes a claim back by saving the whole document from its own
+    `Claim` class, which has no appeal field. A redelivered `claim.submitted` would therefore
+    silently erase a sub-document. With a separate collection, the claim document stays exactly as
+    the engine wrote it. A unique index on `appeals.claimId` enforces one appeal per claim.
+  - **The admin API is at `/api/admin/**`, not `/admin/**`.** Behind the single port-80 nginx,
+    `/admin` has to stay a frontend route. Otherwise, refreshing `/admin/...` in the browser in
+    Part 2 would return JSON.
+
+  **How it works (the parts worth defending):**
+  - **Upload limits:**
+    - An appeal takes 1–3 documents, each at most 5 MB, and the whole request at most 16 MB. These
+      limits are in Spring multipart, and nginx's `client_max_body_size 16m` matches.
+    - An upload over a limit is rejected by the container with **413**, not 400: the request is
+      well-formed, just too large. AppealService's own 5 MB check is a second line of defence.
+    - `server.tomcat.max-swallow-size=20MB` makes sure the client gets that 413 instead of a
+      connection reset.
+    - The file type comes from the file's magic bytes (PDF/PNG/JPEG), never the client's
+      Content-Type.
+  - **Tokens:**
+    - The admin token is an HS256 JWT signed with `ADMIN_TOKEN_SECRET`.
+    - The decoder accepts HS256 only, and it checks expiry and issuer.
+    - The `roles` claim is mapped to ROLE_ADMIN. Spring's default reads `scope`, which would have
+      left every admin token without the role, so every admin call would get 403.
+    - Tokens last 2 h. The service refuses to start if the secret is missing or under 32 bytes.
+  - **Credentials:**
+    - The username is lowercased, then validated against `[a-z0-9._-]{3,32}`.
+    - The password must be 12 characters to 72 **bytes**, which is bcrypt's limit. Longer
+      passwords are rejected, not truncated.
+    - The signup code is compared in constant time (SHA-256 digests, then `MessageDigest.isEqual`).
+  - **Rate limiter:**
+    - 5 failed attempts per client IP per 15 min on sign-up, and separately on login. After that,
+      the response is 429 until the window passes. A success doesn't clear earlier failures.
+    - **It's in-memory and per instance.** It resets on restart and isn't shared between replicas,
+      which is acceptable for the single-instance demo.
+    - In prod the IP is nginx's `X-Real-IP $remote_addr`, which overwrites anything the client
+      sent. `X-Forwarded-For` is not used, because nginx appends to it and a client could spoof it.
+      Outside prod the service ignores the header and uses the socket address.
+  - **Event contract.** `claim.appeal-decided`: `{claimId, outcome, reviewerNote, decidedAt}`, added
+    to §4. `outcome` is **lowercase** (`upheld|overturned`), consistent with `claim.adjudicated`'s
+    `approved|denied`.
+  - **Public claim JSON contract.** `GET /claims/{id}` keeps every field it had before 8b, with the
+    same names and types (snapshot captured by running `main` at `6399cf1`, recorded in
+    `ClaimControllerTest`). It adds only `appeal` (status, dates, reviewer note, document count)
+    and `displayStatus`. `displayStatus` is `APPROVED_ON_APPEAL` when a denial is overturned, while
+    `status` stays the engine's `DENIED`.
+
+  **Limits and known gaps, stated:**
+  - **A failed event publish is not retried.** The decision is committed first; the publish comes
+    after, and a failure is logged at ERROR with the claimId, while the endpoint still returns 200.
+    The consequence is that no notification is logged for that decision, and nothing re-publishes
+    it. That's accepted for a demo; a transactional outbox would be the production fix.
+  - **The reviewer note is public on purpose.** The claimant sees it in `GET /claims/{id}` and in
+    the notification. **Part 2's admin form must say: "This note is visible to the claimant."**
+  - **Cost exposure.** `POST /claims` and the appeal endpoint are unauthenticated. So anyone can
+    create claims, get denials, and upload up to 15 MB per appeal, which goes to S3 on EC2. The
+    per-appeal limits cap each upload, but the total is unbounded, which bears on the AWS cost
+    rules in `CLAUDE.md`. **Part 2 item:** an S3 lifecycle rule (expire `appeals/` objects)
+    and/or a total-size cap before the deployed stack accepts uploads. Not built in Part 1.
+  - **S3 is not verified in Part 1.** `S3DocumentStorage` is tested only against a mocked
+    `S3Client`. The real bucket, the instance-role credentials, and the metadata hop-limit risk
+    (containers may not reach the role's credentials) are first exercised in Part 2's live EC2
+    pass. The storage checkbox in §10 stays unchecked until then.
+  - **Orphaned documents are possible:**
+    - If the service crashes between storing the files and inserting the appeal, the files are
+      orphaned. That's accepted at this scale.
+    - Deleting the losing files after a race, or after a failed upload, needs `s3:DeleteObject`.
+      The instance role grants only `PutObject`/`GetObject` (§8.4), so on EC2 that delete fails
+      and is logged.
+    - **Part 2 item:** add `s3:DeleteObject` on the bucket to the role, or accept the orphans and
+      rely on the lifecycle rule above.
+  - **Memory.** The AWS SDK uses the URLConnection HTTP client, with Netty/Apache excluded, to keep
+    the footprint down. The t3.medium's ~1.3 GiB headroom (§12, Phase 8 verification) is
+    **re-measured in Part 2** with this build.
+  - **Pre-existing finding, not fixed here.** adjudication-service re-adjudicates and re-saves the
+    whole claim if `claim.submitted` is redelivered. Appeals no longer depend on that write path,
+    thanks to the separate collection. Re-running adjudication on a redelivered event is still
+    possible, and was already possible before 8b.
+  - Plain HTTP and no claimant accounts, as stated in the 8b scope entry below.
+
+  **Verified (2026-09-28, local; no AWS used):**
+  - **claims-intake-service: `mvn test` 75/75 green, checkstyle clean.** This includes the
+    Testcontainers tests on a real Mongo 7.0 and real Tomcat in `AppealIntegrationTest`:
+    - the unique indexes exist
+    - a duplicate admin username is rejected
+    - two concurrent appeals on one claim give exactly one 201 and one 409, with the loser's files
+      removed
+    - two concurrent decisions give one 200, one 409, and exactly one publish
+    - 413 for a file over 5 MB and for a request over 16 MB
+  - **notification-service: 7/7 green**, including a Testcontainers Kafka + Mongo test for
+    `claim.appeal-decided`.
+  - **Dev compose stack against Atlas, checked with curl** (employee `EMP-25349`, synthetic): a
+    $2,500 dental claim was DENIED by the engine (plan limit).
+    - Rejections: a text file renamed `.pdf` → 400; missing files or reason → 400; appealing an
+      APPROVED claim → 409; a second appeal → 409.
+    - Auth: sign-up with a wrong code → 403; the right code → 201; a wrong password → 401; no
+      token → 401.
+    - Review: the list and detail showed the engine's decision, and the detail had no storage
+      key. The downloaded document was byte-identical to the upload, with an attachment
+      disposition, nosniff and the detected type.
+    - Decisions: a decision with no note → 400; OVERTURN → 200; deciding again → 409; UPHOLD on a
+      second claim → 200.
+    - Public view: `status` stayed DENIED with `displayStatus` `APPROVED_ON_APPEAL`, and the body
+      had no key, docId, filename or reviewer. The engine's
+      `status`/`decisionReason`/`ruleTrace` were byte-identical before and after the appeal.
+    - Both appeal notifications were logged. `claim.appeal-decided` was auto-created like the
+      existing topics.
+  - **The prod compose file, run locally on port 80** (with a local-storage override, since there
+    are no AWS credentials here):
+    - It refuses to start without `ADMIN_TOKEN_SECRET`/`ADMIN_SIGNUP_CODE`.
+    - A 3 MB appeal passed nginx (201), where nginx's default 1 MB limit would have returned 413.
+      Four 4 MB files were rejected by nginx with 413.
+    - `/admin` served the SPA's `index.html`, and `/api/admin/` reached the service.
+    - Five wrong signup codes, each with a different spoofed `X-Real-IP`, were still counted
+      against one client: the 6th request, with the correct code, got 429.
+  - **Cleanup.** All test claims, appeals, notifications and admin users were deleted from Atlas
+    (5 claims, 3 appeals, 7 notifications, 2 admin users across both runs). Stored files went with
+    the removed volume and container.
+  - Side effect, noted: `docker compose down -v` on the dev stack also removed the local
+    `infra_redpanda-data` volume. That's local Kafka state only; topics recreate on use.
+  - The local `.env` got generated `ADMIN_SIGNUP_CODE` (a throwaway for local testing; the owner
+    picks the production code in Part 2) and `ADMIN_TOKEN_SECRET`. Neither value was printed.
+
+- **2026-09-28** — Scope change (owner): **Phase 8b split into Part 1 and Part 2**, the same way
+  Phase 7 was split into 7a/7b. Nothing in 8b is implemented yet, so the §10 checklist was
+  regrouped rather than superseded. Every item keeps its original wording, except as noted below.
+  - **Why:** one PR would cover backend, auth, S3, notification-service, the RAG guardrail plus an
+    eval re-run, the frontend, nginx, docs and a live EC2 pass. That's too much to review in one
+    manual merge, and too long for one session without context compaction. Merging the backend
+    first also gives Part 2 a fixed API contract to build against.
+  - **Part 1, backend** (`phase-8b1-appeals-backend`, created from `plan-attachments-scope` so the
+    8b planning commits land with it): storage interface (S3 + local disk), `appeal` sub-document
+    and endpoint, admin accounts/auth/review endpoints, `claim.appeal-decided` event and
+    notification consumer, upload limits, `.env.example`/prod compose, Java tests, local curl
+    verification, `CLAUDE.md` architecture reference.
+  - **Part 2, frontend + RAG boundaries + deploy** (`phase-8b2-appeals-frontend-deploy`, only
+    after Part 1 merges): the three RAG boundary items with the eval re-run, frontend routing and
+    claimant/admin pages with Vitest, local browser verification, live EC2 verification (instance
+    stopped afterwards), README and `infra/aws/README.md`.
+  - **Items that changed:**
+    - The single "issue filed" and "plan approved" items are now one per part.
+    - The combined tests item is split: the Java and consumer tests go to Part 1, Vitest to Part 2.
+    - The local full-flow check is split: a curl-level backend check in Part 1, the browser flow in
+      Part 2.
+    - The docs item is split: `CLAUDE.md` in Part 1 (the new collection, topic and role land
+      there), README and `infra/aws/README.md` in Part 2.
+    - Each part's CI item lists only the jobs its changes affect.
+  - Each part gets its own issue, plan approval and PR. The Phase 8b parent box stays unchecked
+    until both parts are done.
+
+- **2026-09-28** — Phase 8b detail (owner-confirmed): **how the admin signup code works.** This
+  expands the `ADMIN_SIGNUP_CODE` gate in the Phase 8b scope entry below.
+  - **Why:** the site is on a public URL. Without a gate, anyone who found `/admin` could sign up as
+    an admin and overturn denied claims.
+  - **Setup:** the owner picks a long random code and puts it **only** in the server's `.env`
+    (`ADMIN_SIGNUP_CODE=...`), next to the other secrets. It's never committed. `.env.example` gets
+    a placeholder only.
+  - **Sign-up:** the `/admin` sign-up form has three fields: username, password, signup code. The
+    backend compares the submitted code with the one in `.env`, using a constant-time comparison.
+    - On a match, the admin account is created, with the password stored as a bcrypt hash.
+    - On no match, the request is rejected with a generic error, and no account is created.
+  - **After sign-up:** admins log in with username and password only. The code is needed once, at
+    sign-up.
+  - **Closing sign-ups:** change or remove `ADMIN_SIGNUP_CODE` in `.env` and restart the service.
+    Existing admins keep working. If the variable is unset or empty, admin sign-up is
+    **disabled**, never open.
+  - **Alternatives considered and not chosen:**
+    - A single admin seeded from `ADMIN_USERNAME`/`ADMIN_PASSWORD` in `.env`, with no sign-up
+      page. It's simpler, but doesn't meet the owner's requirement that admins can sign up.
+    - "First person to sign up becomes admin." Rejected: whoever finds the page first owns the
+      admin role.
+  - **Limit, stated:** the site is plain HTTP, so the code and passwords cross the network
+    unencrypted at sign-up and login. That's acceptable only for this synthetic-data demo (see the
+    Phase 8b scope entry below).
+
+- **2026-09-28** — Scope decision (owner): **supporting documents exist for appeals, and appeals
+  get a human reviewer and an admin panel.** This gives a real purpose to §8.4 and §10's "attachment
+  upload working". §8.4 put attachments in mainly to exercise S3 and a least-privilege instance
+  role, and nothing used them. Built as **Phase 8b** (checklist in §10). Nothing is implemented
+  yet. An earlier draft of this decision, the same day and never committed, required documents on
+  life/disability submissions. The owner replaced it with the flow below before it landed.
+
+  **The flow (applies to every plan type: dental, vision, disability, life):**
+  1. **Submission is unchanged.** A claim is submitted with no documents, and the rule engine
+     approves or denies it exactly as today. The engine's rules, `ruleTrace` and §11
+     precision/recall are untouched.
+  2. **The assistant is unchanged in role.** It answers the questions asked (policy questions,
+     explanations of a claim's decision). It never decides a claim or an appeal.
+  3. **Appeal.** If a claim is DENIED and the claimant disagrees, they can **appeal** it. Appealing
+     requires uploading at least one supporting document (synthetic in this project), stored in
+     **S3**.
+  4. **Flagged for human review.** Submitting an appeal flags that `claimId` for review.
+  5. **Admin panel.** A user can sign up as an **admin**. An admin sees a list of every appealed
+     claim.
+  6. **Admin decision.** For an appealed claim, the admin sees the rule engine's decision, its
+     `decisionReason` and `ruleTrace`, and the claimant's supporting documents. The admin then
+     either **upholds** the rule engine's denial or **overturns** it and approves the claim.
+
+  **What stays rule-based, and where people come in:**
+  - The **first decision is always the rule engine's**: deterministic and traceable through
+    `ruleTrace`. An appeal never re-runs or edits the engine. `ruleTrace` and `decisionReason` are
+    kept exactly as the engine wrote them.
+  - The **appeal decision is a person's**, recorded separately: who reviewed it, when, the outcome
+    (UPHELD/OVERTURNED), and a required note giving the reason. Anyone reading a claim can see what
+    the rules decided and whether a person later changed the outcome.
+  - **No LLM reads, summarizes, classifies or scores a supporting document, at any point.** No LLM
+    makes or recommends an appeal decision. The `rag-assistant-service` has no access to documents
+    or document references. It may *report* an appeal's recorded outcome when explaining a claim,
+    but never predict or suggest one, and the guardrail refuses "will my appeal be approved?"-style
+    questions the same way it refuses adjudication questions today. Same line as `CLAUDE.md`.
+
+  **Design decisions and constraints** (recommendations to confirm in Phase 8b's plan, before
+  implementation):
+  - **Where it lives.** Appeals, documents, and admin accounts go in **claims-intake-service**,
+    which owns the `claims` collection and the claim lifecycle, plus a new `admin_users`
+    collection it owns. This avoids a fifth JVM on the t3.medium (measured headroom ~1.3 GiB, §12
+    above). adjudication-service stays untouched: appeals never go back through the rule engine.
+  - **Claim record.** Keep the engine's `status`/`decisionReason`/`ruleTrace` as they are. Add an
+    `appeal` sub-document: claimant's reason text, document S3 keys + original filenames + sizes,
+    `submittedAt`, status (PENDING_REVIEW → UPHELD/OVERTURNED), reviewer, `decidedAt`,
+    reviewer note. The claim's shown status becomes the appeal outcome once decided (e.g. APPROVED
+    on appeal), and the engine's original decision stays visible.
+  - **Appeal rules.** Only DENIED claims can be appealed. One appeal per claim. At least one
+    document. Type limits (PDF, PNG, JPEG) and size limits (a few MB per file, a small max file
+    count). The nginx and Spring upload limits (both 1 MB by default) are raised to match.
+  - **Documents.** They go through claims-intake-service to S3 using the existing instance role
+    (`s3:PutObject`/`GetObject` on the one bucket), which keeps the single port-80 origin.
+    Admins view them through an **admin-only** endpoint that streams the file. They're never
+    public, S3 keys never appear in the public `GET /claims/{id}` response, and the bucket stays
+    private.
+  - **Local dev** has no AWS credentials. Documents go through a small storage interface with an
+    S3 implementation (EC2) and a local-disk implementation (dev), chosen by config, so the whole
+    appeal/admin flow can be tested locally. Possible EC2 snag: containers may not get the role's
+    credentials because of the instance-metadata hop limit. That's a one-line console change if so.
+  - **Admin auth.** Admin passwords stored as bcrypt hashes. Sessions via a signed token whose
+    secret lives in `.env`. Every admin endpoint requires the admin role (Spring Security).
+    **Admin sign-up is gated** by an `ADMIN_SIGNUP_CODE` from `.env`: open admin sign-up on a
+    public URL would let anyone approve claims.
+  - **Known security limits, stated plainly.** The deployed site is **plain HTTP** (§8, no TLS),
+    so admin passwords cross the network unencrypted. That's acceptable only because this is a
+    synthetic-data demo; admin passwords used here must not be reused anywhere. Claimants have no
+    accounts: whoever has a claim's ID (an unguessable UUID) can appeal it. Both are deliberate
+    demo scoping, noted in the README, not oversights.
+  - **Notification.** When an appeal is decided, publish a `claim.appeal-decided` event (plain
+    JSON, like the existing topics), and notification-service logs the outcome to
+    `notifications_log`. This keeps the existing event-driven pattern instead of a direct call.
+  - **Frontend.** Adds client-side routing. The claimant side gets an "Appeal" action on a DENIED
+    claim (reason + file upload) and shows the appeal status. The `/admin` side gets sign-up, login,
+    the appealed-claims list, and a claim review page with the rule decision, `ruleTrace`, document
+    links, and Uphold/Overturn with a required note.
+  - **Docs to update when it lands.** The `CLAUDE.md` architecture quick reference (new
+    collection, new topic, admin role), README, and `.env.example` (`ADMIN_SIGNUP_CODE`, token
+    secret, bucket name, storage mode).
 
 - **2026-09-28** — Phase 8 live verification on EC2 (issue #20). The instance was started by the
   owner for this pass, and **stopped afterwards** (`sudo shutdown -h now` at 20:39:36Z; port 22

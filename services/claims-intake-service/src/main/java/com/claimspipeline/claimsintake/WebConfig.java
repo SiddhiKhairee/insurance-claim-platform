@@ -17,5 +17,11 @@ public class WebConfig implements WebMvcConfigurer {
   @Override
   public void addCorsMappings(CorsRegistry registry) {
     registry.addMapping("/claims/**").allowedOrigins(allowedOrigin).allowedMethods("GET", "POST");
+    // Admin calls carry the token in the Authorization header (no cookies, so no credentials mode).
+    registry
+        .addMapping("/api/admin/**")
+        .allowedOrigins(allowedOrigin)
+        .allowedMethods("GET", "POST")
+        .allowedHeaders("Authorization", "Content-Type");
   }
 }

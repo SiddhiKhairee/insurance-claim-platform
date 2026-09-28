@@ -32,4 +32,31 @@ public class NotificationConsumer {
 
     LOG.info("Simulated notification sent: claimId={} channel={} message={}", event.claimId(), CHANNEL, message);
   }
+
+  /**
+   * An admin decided an appeal. The reviewer's note is included on purpose: it's the claimant's
+   * explanation of the outcome (PLAN.md §12, 2026-09-28).
+   */
+  @KafkaListener(
+      topics = "claim.appeal-decided",
+      groupId = "notification-service",
+      containerFactory = "appealDecidedListenerContainerFactory")
+  public void onAppealDecided(AppealDecidedEvent event) {
+    String outcome =
+        "overturned".equals(event.outcome())
+            ? "overturned: the claim is approved on appeal"
+            : "upheld: the original denial stands";
+    String message =
+        "Your appeal for claim %s was %s. Reviewer note: %s"
+            .formatted(event.claimId(), outcome, event.reviewerNote());
+
+    NotificationLog notificationLog = new NotificationLog();
+    notificationLog.setClaimId(event.claimId());
+    notificationLog.setChannel(CHANNEL);
+    notificationLog.setSentAt(Instant.now());
+    notificationLog.setMessage(message);
+    notificationLogRepository.save(notificationLog);
+
+    LOG.info("Simulated notification sent: claimId={} channel={} message={}", event.claimId(), CHANNEL, message);
+  }
 }

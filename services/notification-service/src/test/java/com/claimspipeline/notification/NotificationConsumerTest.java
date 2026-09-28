@@ -52,4 +52,42 @@ class NotificationConsumerTest {
     assertThat(saved.getClaimId()).isEqualTo("CLAIM-2");
     assertThat(saved.getMessage()).contains("CLAIM-2").contains("denied").contains("no active coverage");
   }
+
+  @Test
+  void logsOverturnedAppealWithReviewerNote() {
+    consumer = new NotificationConsumer(notificationLogRepository);
+    AppealDecidedEvent event =
+        new AppealDecidedEvent(
+            "CLAIM-3", "overturned", "Receipt confirms the amount", "2026-09-28T12:00:00Z");
+
+    consumer.onAppealDecided(event);
+
+    ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
+    verify(notificationLogRepository).save(captor.capture());
+
+    NotificationLog saved = captor.getValue();
+    assertThat(saved.getClaimId()).isEqualTo("CLAIM-3");
+    assertThat(saved.getChannel()).isEqualTo("EMAIL");
+    assertThat(saved.getSentAt()).isNotNull();
+    assertThat(saved.getMessage())
+        .contains("CLAIM-3")
+        .contains("approved on appeal")
+        .contains("Receipt confirms the amount");
+  }
+
+  @Test
+  void logsUpheldAppeal() {
+    consumer = new NotificationConsumer(notificationLogRepository);
+    AppealDecidedEvent event =
+        new AppealDecidedEvent("CLAIM-4", "upheld", "Not a covered service", "2026-09-28T12:00:00Z");
+
+    consumer.onAppealDecided(event);
+
+    ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
+    verify(notificationLogRepository).save(captor.capture());
+    assertThat(captor.getValue().getMessage())
+        .contains("CLAIM-4")
+        .contains("original denial stands")
+        .contains("Not a covered service");
+  }
 }
