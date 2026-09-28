@@ -329,7 +329,7 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
     - [x] Frontend Q&A widget: answer, citations, distinct "couldn't answer reliably" state for abstentions; `docker-compose.yml` env/build-arg wiring and CORS on the RAG service  _(verified: the four result states and validation by Vitest; live against the rebuilt compose stack, CORS preflight allowed/disallowed origin, an answered, a refused, an abstained and a 422 response via curl, and `VITE_RAG_API_URL` + the widget present in the built bundle. Owner verified the rendered page in a browser at `localhost:3000` on 2026-09-22: a normal policy question answered with citations, an out-of-scope question abstained, a decision-seeking question ("Should this claim be denied?") was refused by the guardrail, `hard-01` (LASIK) reproduced its documented gate over-abstention finding, `dec-07` ("would you sign off on a $2,500 dental claim?") abstained rather than reproducing the scored run's answered outcome (a single manual try, not a repeat under the eval harness — see §12, 2026-09-22), and a submitted claim's ID round-tripped into the widget with a faithful `ruleTrace` explanation.)_
     - [x] Vitest for the widget; eslint clean; CI green  _(PR #19: all 13 checks — lint, test-python, test-frontend, test-java ×4, build-docker ×6 — passed 2026-09-22.)_
 - [ ] **Phase 8** — AWS deployment: EC2 + S3 + security groups + budget alarm; system reachable at a public URL
-  - [ ] GitHub issue filed for Phase 8
+  - [x] GitHub issue filed for Phase 8 (#20)
   - [ ] IAM user created (not root), least-privilege policy attached
   - [ ] EC2 instance launched, Docker installed
   - [ ] Security group locked down to only needed ports
@@ -427,6 +427,53 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 ---
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
+
+- **2026-09-28** — Phase 8 (issue #20), branch `phase-8-aws-deployment`. AWS setup done by hand,
+  scope decisions, and the prod compose/nginx design. Live verification results are recorded in a
+  separate entry once the deploy has actually run.
+
+  **AWS setup, done by hand by the owner in the console, outside the repo** (as reported by the
+  owner; Claude Code has no AWS credentials and did not observe it directly):
+  - IAM user `claims-pipeline-dev`, scoped to EC2 + S3, used for creating resources. The instance
+    role itself was created as root, because it needs `iam:CreateRole`/`CreatePolicy`, which the
+    scoped user correctly doesn't have.
+  - EC2 `claims-pipeline-prod`: `t3.medium`, Ubuntu 26.04 LTS, us-east-1, **25 GB gp3** root volume.
+    The default 8 GB is too small: the RAG image alone is 3.36 GB, plus build cache.
+  - Elastic IP associated.
+  - Security group: 22 from the owner's IP only, 80 from 0.0.0.0/0, nothing else (no 443).
+  - Docker + Compose installed on the instance.
+  - S3 bucket, with public access blocked (the default).
+  - Instance role `claims-pipeline-ec2-s3-role`, with `s3:PutObject`/`GetObject` on that bucket's
+    ARN only.
+  - Atlas Network Access: the old temporary `0.0.0.0/0` entry was deleted; only the Elastic IP and
+    the dev machine's IP remain.
+
+  **Owner decisions:**
+  - `t3.medium` approved, based on the 2026-09-22 measurement. The memory-trimming options are not
+    pursued.
+  - **Budget alarm is set at $4 with 80%/100% alerts, not §8's $1.** This is intentional. For scale:
+    t3.medium on-demand is ~$0.0416/hr in us-east-1, so $4 is roughly 96 instance-hours before
+    counting the Elastic IP and EBS. The alarm is a backstop; the primary control is the
+    stopped-by-default rule in `CLAUDE.md`.
+
+  **Scope change: S3 attachment upload deferred out of Phase 8.** No attachment code exists in any
+  service. Building it (endpoint, S3 client, UI) is feature work, not deployment. The bucket and
+  instance role exist but are unused. §10's "S3 bucket created, attachment upload working" stays
+  unchecked.
+
+  **Design:**
+  - The security group opens only port 80, but in dev the browser calls `:8082` and `:8000`
+    directly. So in prod, nginx in the frontend container (`infra/nginx/prod.conf`, mounted only
+    by the prod compose file) serves the SPA and forwards `/claims/` and `/assistant/` over the
+    compose network. Those paths already match `frontend/src/api.js`, so there are no code changes.
+  - A single `PUBLIC_ORIGIN` in the server's `.env` feeds both `VITE_*` build args and both
+    `CORS_ALLOWED_ORIGIN`s. No IP is committed. This closes the Phase 5 and 7b forward pointers.
+  - Only port 80 is published.
+  - `redpanda-console` is dropped from prod (dev-only tool).
+  - Plain HTTP, no TLS: there's no domain and no 443.
+  - Deploy is `git pull` + build on the box. The ECR/Actions `deploy` job from §9.1 is not built:
+    it's optional per §8.5, and the IAM user has no ECR access.
+  - Runbook: `infra/aws/README.md`.
 
 - **2026-09-22** — Phase 8 instance-sizing measurement, taken before any EC2 instance was
   created (issue not yet filed; branch `phase-8-aws-deployment`). §8 assumes `t3.micro`
