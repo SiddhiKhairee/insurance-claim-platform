@@ -339,6 +339,47 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 
   > Phase 8's parent box stays unchecked while the attachment item is deferred. The owner decides
   > whether Phase 8 counts as done without it.
+
+  > **Attachments given a purpose on 2026-09-28 (see §12 entry of that date).** The attachment
+  > item above is carried by Phase 8b below: supporting documents are uploaded when a claimant
+  > **appeals** a denied claim, stored in S3, and read only by a human admin who upholds or
+  > overturns the denial. The rule engine still makes every first decision; no LLM ever reads a
+  > document or decides an appeal.
+
+  - [ ] **Phase 8b** — Appeals, supporting documents (S3) and admin review panel. Own branch (`plan-attachments-scope`, which also carries this planning commit), issue, and PR (§2.1). Start only after its plan is approved. Design and constraints: §12, 2026-09-28.
+    - [ ] GitHub issue filed for Phase 8b
+    - [ ] Plan approved, confirming or changing the §12 recommendations (service placement, claim `appeal` sub-document, auth approach, `ADMIN_SIGNUP_CODE` gate, local-disk storage for dev)
+    - **Backend: appeals and documents (claims-intake-service)**
+      - [ ] Storage interface with an S3 implementation (instance role, EC2) and a local-disk implementation (dev), chosen by config
+      - [ ] `appeal` sub-document on the claim: reason, document keys/filenames/sizes, `submittedAt`, status PENDING_REVIEW → UPHELD/OVERTURNED, reviewer, `decidedAt`, reviewer note. The engine's `status`/`decisionReason`/`ruleTrace` are never modified
+      - [ ] `POST /claims/{claimId}/appeal` (multipart: reason + at least one document). Rejects: claim not DENIED, already appealed, no document, wrong type (PDF/PNG/JPEG only), too large or too many files
+      - [ ] Public `GET /claims/{claimId}` shows appeal status/outcome but **no S3 keys or document links**
+      - [ ] Upload limits raised consistently in Spring (multipart) and nginx (`client_max_body_size`)
+    - **Backend: admin accounts and review (claims-intake-service)**
+      - [ ] `admin_users` collection; `POST /admin/signup` gated by `ADMIN_SIGNUP_CODE`; `POST /admin/login`; bcrypt password hashes; signed session token (secret in `.env`)
+      - [ ] Spring Security: every `/admin/**` endpoint except signup/login requires the admin role; 401/403 otherwise
+      - [ ] `GET /admin/appeals` lists appealed claims (pending first, filterable by status)
+      - [ ] `GET /admin/appeals/{claimId}` returns the claim, the rule engine's decision, `decisionReason`, `ruleTrace`, and document metadata
+      - [ ] `GET /admin/appeals/{claimId}/documents/{docId}` streams the document (admin only; bucket stays private)
+      - [ ] `POST /admin/appeals/{claimId}/decision` with UPHOLD or OVERTURN and a required note. Records reviewer + time. OVERTURN sets the shown status to approved-on-appeal. A decision is final (can't be decided twice)
+      - [ ] Publishes `claim.appeal-decided` (plain JSON) when an appeal is decided
+    - **Notification service**
+      - [ ] Consumes `claim.appeal-decided` and logs the outcome to `notifications_log`
+    - **RAG assistant: boundaries (checked, not assumed)**
+      - [ ] rag-assistant-service has no access to documents or document references (the claim context it receives excludes them)
+      - [ ] When explaining a claim, it reports a recorded appeal outcome accurately (rule decision, then the human decision) and never predicts or suggests one
+      - [ ] Guardrail refuses appeal-outcome questions ("will my appeal be approved?", "should the admin overturn this?"), with pytest cases; eval set re-run to confirm no regression, logged in §11/§12
+    - **Frontend**
+      - [ ] Client-side routing: claimant pages and `/admin`
+      - [ ] Claimant: "Appeal" action on a DENIED claim (reason + file picker with the same type/size limits), appeal status and outcome shown on the claim status view
+      - [ ] Admin: sign-up (with signup code), login, logout; appealed-claims list; claim review page showing the rule decision, `ruleTrace`, document links, and Uphold/Overturn with a required note
+    - **Config, docs, tests, deploy**
+      - [ ] `.env.example`: `ADMIN_SIGNUP_CODE`, token secret, `S3_BUCKET`, storage mode. Prod compose passes them through
+      - [ ] Tests: JUnit + Mockito for appeal validation and decisions (mocked storage/S3), MockMvc + Spring Security for admin auth (401/403/200), notification consumer test, Vitest for the appeal form and admin pages. `ruleTrace` is unchanged after an appeal, asserted explicitly
+      - [ ] Full flow verified locally (local-disk storage): deny → appeal with document → admin sign-up/login → review → overturn and uphold paths → claimant sees outcome → notification logged
+      - [ ] Verified live on EC2: document lands in the private S3 bucket through the instance role, admin can open it, public claim response exposes no keys; test data and S3 objects cleaned up; **instance stopped afterwards**
+      - [ ] `CLAUDE.md` architecture reference, README (incl. plain-HTTP and no-claimant-accounts limits), and `infra/aws/README.md` updated
+      - [ ] CI green (lint, test-java, test-python, test-frontend, build-docker)
 - [ ] **Phase 9** — Testing hardening: Testcontainers integration tests, Spock specs, Playwright E2E, CI green end-to-end
   - [ ] GitHub issue filed for Phase 9
   - [ ] Testcontainers integration tests for Kafka + Mongo
@@ -430,6 +471,85 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 ---
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
+
+- **2026-09-28** — Scope decision (owner): **supporting documents exist for appeals, and appeals
+  get a human reviewer and an admin panel.** This gives a real purpose to §8.4 and §10's "attachment
+  upload working". §8.4 put attachments in mainly to exercise S3 and a least-privilege instance
+  role, and nothing used them. Built as **Phase 8b** (checklist in §10). Nothing is implemented
+  yet. An earlier draft of this decision, the same day and never committed, required documents on
+  life/disability submissions. The owner replaced it with the flow below before it landed.
+
+  **The flow (applies to every plan type: dental, vision, disability, life):**
+  1. **Submission is unchanged.** A claim is submitted with no documents, and the rule engine
+     approves or denies it exactly as today. The engine's rules, `ruleTrace` and §11
+     precision/recall are untouched.
+  2. **The assistant is unchanged in role.** It answers the questions asked (policy questions,
+     explanations of a claim's decision). It never decides a claim or an appeal.
+  3. **Appeal.** If a claim is DENIED and the claimant disagrees, they can **appeal** it. Appealing
+     requires uploading at least one supporting document (synthetic in this project), stored in
+     **S3**.
+  4. **Flagged for human review.** Submitting an appeal flags that `claimId` for review.
+  5. **Admin panel.** A user can sign up as an **admin**. An admin sees a list of every appealed
+     claim.
+  6. **Admin decision.** For an appealed claim, the admin sees the rule engine's decision, its
+     `decisionReason` and `ruleTrace`, and the claimant's supporting documents. The admin then
+     either **upholds** the rule engine's denial or **overturns** it and approves the claim.
+
+  **What stays rule-based, and where people come in:**
+  - The **first decision is always the rule engine's**: deterministic and traceable through
+    `ruleTrace`. An appeal never re-runs or edits the engine. `ruleTrace` and `decisionReason` are
+    kept exactly as the engine wrote them.
+  - The **appeal decision is a person's**, recorded separately: who reviewed it, when, the outcome
+    (UPHELD/OVERTURNED), and a required note giving the reason. Anyone reading a claim can see what
+    the rules decided and whether a person later changed the outcome.
+  - **No LLM reads, summarizes, classifies or scores a supporting document, at any point.** No LLM
+    makes or recommends an appeal decision. The `rag-assistant-service` has no access to documents
+    or document references. It may *report* an appeal's recorded outcome when explaining a claim,
+    but never predict or suggest one, and the guardrail refuses "will my appeal be approved?"-style
+    questions the same way it refuses adjudication questions today. Same line as `CLAUDE.md`.
+
+  **Design decisions and constraints** (recommendations to confirm in Phase 8b's plan, before
+  implementation):
+  - **Where it lives.** Appeals, documents, and admin accounts go in **claims-intake-service**,
+    which owns the `claims` collection and the claim lifecycle, plus a new `admin_users`
+    collection it owns. This avoids a fifth JVM on the t3.medium (measured headroom ~1.3 GiB, §12
+    above). adjudication-service stays untouched: appeals never go back through the rule engine.
+  - **Claim record.** Keep the engine's `status`/`decisionReason`/`ruleTrace` as they are. Add an
+    `appeal` sub-document: claimant's reason text, document S3 keys + original filenames + sizes,
+    `submittedAt`, status (PENDING_REVIEW → UPHELD/OVERTURNED), reviewer, `decidedAt`,
+    reviewer note. The claim's shown status becomes the appeal outcome once decided (e.g. APPROVED
+    on appeal), and the engine's original decision stays visible.
+  - **Appeal rules.** Only DENIED claims can be appealed. One appeal per claim. At least one
+    document. Type limits (PDF, PNG, JPEG) and size limits (a few MB per file, a small max file
+    count). The nginx and Spring upload limits (both 1 MB by default) are raised to match.
+  - **Documents.** They go through claims-intake-service to S3 using the existing instance role
+    (`s3:PutObject`/`GetObject` on the one bucket), which keeps the single port-80 origin.
+    Admins view them through an **admin-only** endpoint that streams the file. They're never
+    public, S3 keys never appear in the public `GET /claims/{id}` response, and the bucket stays
+    private.
+  - **Local dev** has no AWS credentials. Documents go through a small storage interface with an
+    S3 implementation (EC2) and a local-disk implementation (dev), chosen by config, so the whole
+    appeal/admin flow can be tested locally. Possible EC2 snag: containers may not get the role's
+    credentials because of the instance-metadata hop limit. That's a one-line console change if so.
+  - **Admin auth.** Admin passwords stored as bcrypt hashes. Sessions via a signed token whose
+    secret lives in `.env`. Every admin endpoint requires the admin role (Spring Security).
+    **Admin sign-up is gated** by an `ADMIN_SIGNUP_CODE` from `.env`: open admin sign-up on a
+    public URL would let anyone approve claims.
+  - **Known security limits, stated plainly.** The deployed site is **plain HTTP** (§8, no TLS),
+    so admin passwords cross the network unencrypted. That's acceptable only because this is a
+    synthetic-data demo; admin passwords used here must not be reused anywhere. Claimants have no
+    accounts: whoever has a claim's ID (an unguessable UUID) can appeal it. Both are deliberate
+    demo scoping, noted in the README, not oversights.
+  - **Notification.** When an appeal is decided, publish a `claim.appeal-decided` event (plain
+    JSON, like the existing topics), and notification-service logs the outcome to
+    `notifications_log`. This keeps the existing event-driven pattern instead of a direct call.
+  - **Frontend.** Adds client-side routing. The claimant side gets an "Appeal" action on a DENIED
+    claim (reason + file upload) and shows the appeal status. The `/admin` side gets sign-up, login,
+    the appealed-claims list, and a claim review page with the rule decision, `ruleTrace`, document
+    links, and Uphold/Overturn with a required note.
+  - **Docs to update when it lands.** The `CLAUDE.md` architecture quick reference (new
+    collection, new topic, admin role), README, and `.env.example` (`ADMIN_SIGNUP_CODE`, token
+    secret, bucket name, storage mode).
 
 - **2026-09-28** — Phase 8 live verification on EC2 (issue #20). The instance was started by the
   owner for this pass, and **stopped afterwards** (`sudo shutdown -h now` at 20:39:36Z; port 22
