@@ -346,40 +346,55 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
   > overturns the denial. The rule engine still makes every first decision; no LLM ever reads a
   > document or decides an appeal.
 
-  - [ ] **Phase 8b** — Appeals, supporting documents (S3) and admin review panel. Own branch (`plan-attachments-scope`, which also carries this planning commit), issue, and PR (§2.1). Start only after its plan is approved. Design and constraints: §12, 2026-09-28.
-    - [ ] GitHub issue filed for Phase 8b
-    - [ ] Plan approved, confirming or changing the §12 recommendations (service placement, claim `appeal` sub-document, auth approach, `ADMIN_SIGNUP_CODE` gate, local-disk storage for dev)
-    - **Backend: appeals and documents (claims-intake-service)**
-      - [ ] Storage interface with an S3 implementation (instance role, EC2) and a local-disk implementation (dev), chosen by config
-      - [ ] `appeal` sub-document on the claim: reason, document keys/filenames/sizes, `submittedAt`, status PENDING_REVIEW → UPHELD/OVERTURNED, reviewer, `decidedAt`, reviewer note. The engine's `status`/`decisionReason`/`ruleTrace` are never modified
-      - [ ] `POST /claims/{claimId}/appeal` (multipart: reason + at least one document). Rejects: claim not DENIED, already appealed, no document, wrong type (PDF/PNG/JPEG only), too large or too many files
-      - [ ] Public `GET /claims/{claimId}` shows appeal status/outcome but **no S3 keys or document links**
-      - [ ] Upload limits raised consistently in Spring (multipart) and nginx (`client_max_body_size`)
-    - **Backend: admin accounts and review (claims-intake-service)**
-      - [ ] `admin_users` collection; `POST /admin/signup` gated by `ADMIN_SIGNUP_CODE` (constant-time compare; wrong code rejected with no account created; unset/empty code means sign-up is disabled, and all three are tested); `POST /admin/login`; bcrypt password hashes; signed session token (secret in `.env`)
-      - [ ] Spring Security: every `/admin/**` endpoint except signup/login requires the admin role; 401/403 otherwise
-      - [ ] `GET /admin/appeals` lists appealed claims (pending first, filterable by status)
-      - [ ] `GET /admin/appeals/{claimId}` returns the claim, the rule engine's decision, `decisionReason`, `ruleTrace`, and document metadata
-      - [ ] `GET /admin/appeals/{claimId}/documents/{docId}` streams the document (admin only; bucket stays private)
-      - [ ] `POST /admin/appeals/{claimId}/decision` with UPHOLD or OVERTURN and a required note. Records reviewer + time. OVERTURN sets the shown status to approved-on-appeal. A decision is final (can't be decided twice)
-      - [ ] Publishes `claim.appeal-decided` (plain JSON) when an appeal is decided
-    - **Notification service**
-      - [ ] Consumes `claim.appeal-decided` and logs the outcome to `notifications_log`
-    - **RAG assistant: boundaries (checked, not assumed)**
-      - [ ] rag-assistant-service has no access to documents or document references (the claim context it receives excludes them)
-      - [ ] When explaining a claim, it reports a recorded appeal outcome accurately (rule decision, then the human decision) and never predicts or suggests one
-      - [ ] Guardrail refuses appeal-outcome questions ("will my appeal be approved?", "should the admin overturn this?"), with pytest cases; eval set re-run to confirm no regression, logged in §11/§12
-    - **Frontend**
-      - [ ] Client-side routing: claimant pages and `/admin`
-      - [ ] Claimant: "Appeal" action on a DENIED claim (reason + file picker with the same type/size limits), appeal status and outcome shown on the claim status view
-      - [ ] Admin: sign-up (with signup code), login, logout; appealed-claims list; claim review page showing the rule decision, `ruleTrace`, document links, and Uphold/Overturn with a required note
-    - **Config, docs, tests, deploy**
-      - [ ] `.env.example`: `ADMIN_SIGNUP_CODE`, token secret, `S3_BUCKET`, storage mode. Prod compose passes them through
-      - [ ] Tests: JUnit + Mockito for appeal validation and decisions (mocked storage/S3), MockMvc + Spring Security for admin auth (401/403/200), notification consumer test, Vitest for the appeal form and admin pages. `ruleTrace` is unchanged after an appeal, asserted explicitly
-      - [ ] Full flow verified locally (local-disk storage): deny → appeal with document → admin sign-up/login → review → overturn and uphold paths → claimant sees outcome → notification logged
-      - [ ] Verified live on EC2: document lands in the private S3 bucket through the instance role, admin can open it, public claim response exposes no keys; test data and S3 objects cleaned up; **instance stopped afterwards**
-      - [ ] `CLAUDE.md` architecture reference, README (incl. plain-HTTP and no-claimant-accounts limits), and `infra/aws/README.md` updated
-      - [ ] CI green (lint, test-java, test-python, test-frontend, build-docker)
+  - [ ] **Phase 8b** — Appeals, supporting documents (S3) and admin review panel. Design and constraints: §12, 2026-09-28 (scope entry and admin signup code entry).
+
+    > **Split into Part 1 and Part 2 on 2026-09-28 (see §12 entry of that date).** Same scope as
+    > first planned; the items are grouped into two sub-phases, each with its own branch, issue,
+    > plan approval, and PR (§2.1). Part 2 starts only after Part 1 is merged. Phase 8b is done
+    > only when **both** parts are done; this parent box stays unchecked until then.
+
+    - [ ] **Phase 8b Part 1** — Backend: appeals, documents, admin accounts, event. Branch `phase-8b1-appeals-backend`, created from `plan-attachments-scope` so the 8b planning commits land with this PR
+      - [ ] GitHub issue filed for Phase 8b Part 1
+      - [ ] Plan approved, confirming or changing the §12 recommendations (service placement, claim `appeal` sub-document, auth approach, `ADMIN_SIGNUP_CODE` gate, local-disk storage for dev)
+      - **Appeals and documents (claims-intake-service)**
+        - [ ] Storage interface with an S3 implementation (instance role, EC2) and a local-disk implementation (dev), chosen by config
+        - [ ] `appeal` sub-document on the claim: reason, document keys/filenames/sizes, `submittedAt`, status PENDING_REVIEW → UPHELD/OVERTURNED, reviewer, `decidedAt`, reviewer note. The engine's `status`/`decisionReason`/`ruleTrace` are never modified
+        - [ ] `POST /claims/{claimId}/appeal` (multipart: reason + at least one document). Rejects: claim not DENIED, already appealed, no document, wrong type (PDF/PNG/JPEG only), too large or too many files
+        - [ ] Public `GET /claims/{claimId}` shows appeal status/outcome but **no S3 keys or document links**
+        - [ ] Upload limits raised consistently in Spring (multipart) and nginx (`client_max_body_size`)
+      - **Admin accounts and review (claims-intake-service)**
+        - [ ] `admin_users` collection; `POST /admin/signup` gated by `ADMIN_SIGNUP_CODE` (constant-time compare; wrong code rejected with no account created; unset/empty code means sign-up is disabled, and all three are tested); `POST /admin/login`; bcrypt password hashes; signed session token (secret in `.env`)
+        - [ ] Spring Security: every `/admin/**` endpoint except signup/login requires the admin role; 401/403 otherwise
+        - [ ] `GET /admin/appeals` lists appealed claims (pending first, filterable by status)
+        - [ ] `GET /admin/appeals/{claimId}` returns the claim, the rule engine's decision, `decisionReason`, `ruleTrace`, and document metadata
+        - [ ] `GET /admin/appeals/{claimId}/documents/{docId}` streams the document (admin only; bucket stays private)
+        - [ ] `POST /admin/appeals/{claimId}/decision` with UPHOLD or OVERTURN and a required note. Records reviewer + time. OVERTURN sets the shown status to approved-on-appeal. A decision is final (can't be decided twice)
+        - [ ] Publishes `claim.appeal-decided` (plain JSON) when an appeal is decided
+      - **Notification service**
+        - [ ] Consumes `claim.appeal-decided` and logs the outcome to `notifications_log`
+      - **Config, docs, tests**
+        - [ ] `.env.example`: `ADMIN_SIGNUP_CODE`, token secret, `S3_BUCKET`, storage mode. Prod compose passes them through
+        - [ ] Tests: JUnit + Mockito for appeal validation and decisions (mocked storage/S3), MockMvc + Spring Security for admin auth (401/403/200), notification consumer test. `ruleTrace` is unchanged after an appeal, asserted explicitly
+        - [ ] Backend flow verified locally via curl (local-disk storage): deny → appeal with document → admin sign-up/login → list → view + download document → overturn and uphold paths → public `GET /claims/{id}` shows outcome with no keys → notification logged
+        - [ ] `CLAUDE.md` architecture reference updated (new `admin_users` collection, `claim.appeal-decided` topic, admin role)
+        - [ ] CI green (lint, test-java, build-docker)
+    - [ ] **Phase 8b Part 2** — Frontend, RAG boundaries, live deploy. Branch `phase-8b2-appeals-frontend-deploy` (start only after Part 1 is merged)
+      - [ ] GitHub issue filed for Phase 8b Part 2
+      - [ ] Plan approved
+      - **RAG assistant: boundaries (checked, not assumed)**
+        - [ ] rag-assistant-service has no access to documents or document references (the claim context it receives excludes them)
+        - [ ] When explaining a claim, it reports a recorded appeal outcome accurately (rule decision, then the human decision) and never predicts or suggests one
+        - [ ] Guardrail refuses appeal-outcome questions ("will my appeal be approved?", "should the admin overturn this?"), with pytest cases; eval set re-run to confirm no regression, logged in §11/§12
+      - **Frontend**
+        - [ ] Client-side routing: claimant pages and `/admin`
+        - [ ] Claimant: "Appeal" action on a DENIED claim (reason + file picker with the same type/size limits), appeal status and outcome shown on the claim status view
+        - [ ] Admin: sign-up (with signup code), login, logout; appealed-claims list; claim review page showing the rule decision, `ruleTrace`, document links, and Uphold/Overturn with a required note
+        - [ ] Vitest for the appeal form and admin pages
+      - **Verify, docs, deploy**
+        - [ ] Full flow verified locally in a browser (local-disk storage): deny → appeal with document → admin sign-up/login → review → overturn and uphold paths → claimant sees outcome → notification logged
+        - [ ] Verified live on EC2: document lands in the private S3 bucket through the instance role, admin can open it, public claim response exposes no keys; test data and S3 objects cleaned up; **instance stopped afterwards**
+        - [ ] README (incl. plain-HTTP and no-claimant-accounts limits) and `infra/aws/README.md` updated
+        - [ ] CI green (lint, test-java, test-python, test-frontend, build-docker)
 - [ ] **Phase 9** — Testing hardening: Testcontainers integration tests, Spock specs, Playwright E2E, CI green end-to-end
   - [ ] GitHub issue filed for Phase 9
   - [ ] Testcontainers integration tests for Kafka + Mongo
@@ -471,6 +486,33 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 ---
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
+
+- **2026-09-28** — Scope change (owner): **Phase 8b split into Part 1 and Part 2**, the same way
+  Phase 7 was split into 7a/7b. Nothing in 8b is implemented yet, so the §10 checklist was
+  regrouped rather than superseded. Every item keeps its original wording, except as noted below.
+  - **Why:** one PR would cover backend, auth, S3, notification-service, the RAG guardrail plus an
+    eval re-run, the frontend, nginx, docs and a live EC2 pass. That's too much to review in one
+    manual merge, and too long for one session without context compaction. Merging the backend
+    first also gives Part 2 a fixed API contract to build against.
+  - **Part 1, backend** (`phase-8b1-appeals-backend`, created from `plan-attachments-scope` so the
+    8b planning commits land with it): storage interface (S3 + local disk), `appeal` sub-document
+    and endpoint, admin accounts/auth/review endpoints, `claim.appeal-decided` event and
+    notification consumer, upload limits, `.env.example`/prod compose, Java tests, local curl
+    verification, `CLAUDE.md` architecture reference.
+  - **Part 2, frontend + RAG boundaries + deploy** (`phase-8b2-appeals-frontend-deploy`, only
+    after Part 1 merges): the three RAG boundary items with the eval re-run, frontend routing and
+    claimant/admin pages with Vitest, local browser verification, live EC2 verification (instance
+    stopped afterwards), README and `infra/aws/README.md`.
+  - **Items that changed:**
+    - The single "issue filed" and "plan approved" items are now one per part.
+    - The combined tests item is split: the Java and consumer tests go to Part 1, Vitest to Part 2.
+    - The local full-flow check is split: a curl-level backend check in Part 1, the browser flow in
+      Part 2.
+    - The docs item is split: `CLAUDE.md` in Part 1 (the new collection, topic and role land
+      there), README and `infra/aws/README.md` in Part 2.
+    - Each part's CI item lists only the jobs its changes affect.
+  - Each part gets its own issue, plan approval and PR. The Phase 8b parent box stays unchecked
+    until both parts are done.
 
 - **2026-09-28** — Phase 8b detail (owner-confirmed): **how the admin signup code works.** This
   expands the `ADMIN_SIGNUP_CODE` gate in the Phase 8b scope entry below.
