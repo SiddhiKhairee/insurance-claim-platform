@@ -29,6 +29,34 @@ public class KafkaConsumerConfig {
   public ConsumerFactory<String, Object> consumerFactory(
       @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
       @Value("${spring.kafka.consumer.group-id}") String groupId) {
+    return new DefaultKafkaConsumerFactory<>(
+        consumerProps(bootstrapServers, groupId, ClaimAdjudicatedEvent.class));
+  }
+
+  @Bean
+  public ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory(
+      ConsumerFactory<String, Object> consumerFactory, KafkaTemplate<String, Object> kafkaTemplate) {
+    return containerFactory(consumerFactory, kafkaTemplate);
+  }
+
+  /**
+   * claim.appeal-decided carries a different payload. With no type headers, the JSON
+   * deserializer's default type decides what each topic's messages become, so this topic gets its
+   * own factory rather than sharing the claim.adjudicated one. Same DLT recoverer.
+   */
+  @Bean
+  public ConcurrentKafkaListenerContainerFactory<String, Object> appealDecidedListenerContainerFactory(
+      @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
+      @Value("${spring.kafka.consumer.group-id}") String groupId,
+      KafkaTemplate<String, Object> kafkaTemplate) {
+    ConsumerFactory<String, Object> consumerFactory =
+        new DefaultKafkaConsumerFactory<>(
+            consumerProps(bootstrapServers, groupId, AppealDecidedEvent.class));
+    return containerFactory(consumerFactory, kafkaTemplate);
+  }
+
+  private static Map<String, Object> consumerProps(
+      String bootstrapServers, String groupId, Class<?> valueType) {
     Map<String, Object> props = new HashMap<>();
     props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
     props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
@@ -37,14 +65,13 @@ public class KafkaConsumerConfig {
     props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
     props.put(ErrorHandlingDeserializer.KEY_DESERIALIZER_CLASS, StringDeserializer.class);
     props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
-    props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, ClaimAdjudicatedEvent.class.getName());
+    props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, valueType.getName());
     props.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, false);
     props.put(JsonDeserializer.TRUSTED_PACKAGES, "com.claimspipeline.notification");
-    return new DefaultKafkaConsumerFactory<>(props);
+    return props;
   }
 
-  @Bean
-  public ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory(
+  private static ConcurrentKafkaListenerContainerFactory<String, Object> containerFactory(
       ConsumerFactory<String, Object> consumerFactory, KafkaTemplate<String, Object> kafkaTemplate) {
     ConcurrentKafkaListenerContainerFactory<String, Object> factory =
         new ConcurrentKafkaListenerContainerFactory<>();

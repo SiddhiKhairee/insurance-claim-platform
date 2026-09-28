@@ -82,6 +82,36 @@ class NotificationIntegrationTest {
     assertThat(saved.getMessage()).contains("approved");
   }
 
+  /** The second topic, through its own container factory, against the real broker and Mongo. */
+  @Test
+  void consumesAppealDecidedAndWritesNotificationLog() {
+    producer = new KafkaProducer<>(producerProps());
+    String payload =
+        """
+        {"claimId":"CLAIM-IT-2","outcome":"overturned","reviewerNote":"Receipt confirms the amount",\
+        "decidedAt":"2026-09-28T12:00:00Z"}
+        """;
+    producer.send(new ProducerRecord<>("claim.appeal-decided", "CLAIM-IT-2", payload));
+    producer.flush();
+
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () -> {
+              List<NotificationLog> logs = notificationLogRepository.findAll();
+              assertThat(logs).anySatisfy(log -> assertThat(log.getClaimId()).isEqualTo("CLAIM-IT-2"));
+            });
+
+    NotificationLog saved =
+        notificationLogRepository.findAll().stream()
+            .filter(log -> "CLAIM-IT-2".equals(log.getClaimId()))
+            .findFirst()
+            .orElseThrow();
+    assertThat(saved.getMessage())
+        .contains("approved on appeal")
+        .contains("Receipt confirms the amount");
+  }
+
   private Map<String, Object> producerProps() {
     return Map.of(
         ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers(),

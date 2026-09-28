@@ -15,6 +15,11 @@
 # - Deploy is `git pull` + build on the box. No ECR push (PLAN.md §8.5 marks that optional).
 
 x-public-origin: &public-origin ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env, e.g. http://<elastic-ip>}
+# Admin secrets (Phase 8b). Compose refuses to start without them, the same way as
+# PUBLIC_ORIGIN; the service also refuses a token secret under 32 bytes.
+x-admin-token-secret: &admin-token-secret ${ADMIN_TOKEN_SECRET:?set ADMIN_TOKEN_SECRET in .env, e.g. from `openssl rand -base64 48`}
+x-admin-signup-code: &admin-signup-code ${ADMIN_SIGNUP_CODE:?set ADMIN_SIGNUP_CODE in .env; a long random value, shared only with people who should become admins}
+x-s3-bucket: &s3-bucket ${S3_BUCKET:?set S3_BUCKET in .env to the private appeal-documents bucket}
 
 services:
   redpanda:
@@ -44,6 +49,14 @@ services:
       # Same origin as the page (nginx forwards to this service), but Spring still checks the
       # Origin header on POSTs, so it's set explicitly.
       CORS_ALLOWED_ORIGIN: *public-origin
+      # Appeal documents go to the private S3 bucket through the EC2 instance role.
+      APPEAL_STORAGE_MODE: s3
+      S3_BUCKET: *s3-bucket
+      ADMIN_TOKEN_SECRET: *admin-token-secret
+      ADMIN_SIGNUP_CODE: *admin-signup-code
+      # Every request arrives through nginx, which sets X-Real-IP; the login/sign-up rate
+      # limiter keys on it (ClientIpResolver).
+      ADMIN_TRUST_PROXY_HEADER: "true"
     depends_on:
       - redpanda
     restart: unless-stopped

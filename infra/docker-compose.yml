@@ -36,6 +36,11 @@ services:
     environment:
       KAFKA_BROKERS: redpanda:9092
       CORS_ALLOWED_ORIGIN: http://localhost:3000
+      # Dev keeps appeal documents on a local volume (no AWS credentials here). Prod uses S3.
+      APPEAL_STORAGE_MODE: local
+      APPEAL_STORAGE_DIR: /data/appeal-docs
+    volumes:
+      - appeal-docs:/data/appeal-docs
     depends_on:
       - redpanda
     ports:
@@ -100,3 +105,4 @@ services:
 
 volumes:
   redpanda-data:
+  appeal-docs:
