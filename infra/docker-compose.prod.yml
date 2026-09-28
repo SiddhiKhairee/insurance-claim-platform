@@ -1,27 +1,111 @@
-# Placeholder for AWS/EC2 deployment. Real production overrides (image tags, secrets,
-# S3/attachment config, reverse proxy) land in Phase 8 — see PLAN.md §8. For now this
-# proves the same service set builds under an alternate compose file.
+# Production stack for the single EC2 instance (PLAN.md §8; runbook in infra/aws/README.md).
+# Run from the repo root:
+#   docker compose -f infra/docker-compose.prod.yml --env-file .env up -d --build
+# `--env-file .env` is required. Compose reads interpolation variables (PUBLIC_ORIGIN) from
+# the project directory (infra/) by default, and the real .env lives at the repo root.
+#
+# Deliberate scoping decisions, not oversights:
+# - One t3.medium runs everything. Measured peak ~2.45 GiB of 4 GiB (PLAN.md §12, 2026-09-22),
+#   so no per-container memory limits. A cluster/orchestrator isn't justified for a demo.
+# - Only port 80 is published, on the frontend. nginx (infra/nginx/prod.conf) forwards
+#   /claims/ and /assistant/ to the backends over the compose network. Redpanda and the Java
+#   services have no published ports.
+# - Plain HTTP on the Elastic IP, no TLS: there's no domain, and the security group has no 443.
+# - redpanda-console is dev-only and left out here. That's one less service and less memory.
+# - Deploy is `git pull` + build on the box. No ECR push (PLAN.md §8.5 marks that optional).
+
+x-public-origin: &public-origin ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env, e.g. http://<elastic-ip>}
+
 services:
+  redpanda:
+    image: redpandadata/redpanda:latest
+    command:
+      - redpanda start
+      - --smp 1
+      - --overprovisioned
+      - --kafka-addr PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:9092
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    restart: unless-stopped
+
   enrollment-service:
     build: ../services/enrollment-service
+    env_file:
+      - ../.env
     restart: unless-stopped
 
   claims-intake-service:
     build: ../services/claims-intake-service
+    env_file:
+      - ../.env
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      # Same origin as the page (nginx forwards to this service), but Spring still checks the
+      # Origin header on POSTs, so it's set explicitly.
+      CORS_ALLOWED_ORIGIN: *public-origin
+    depends_on:
+      - redpanda
     restart: unless-stopped
 
   adjudication-service:
     build: ../services/adjudication-service
+    env_file:
+      - ../.env
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      ENROLLMENT_SERVICE_URL: http://enrollment-service:8081
+    depends_on:
+      - redpanda
+      - enrollment-service
     restart: unless-stopped
 
   notification-service:
     build: ../services/notification-service
+    env_file:
+      - ../.env
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    depends_on:
+      - redpanda
     restart: unless-stopped
 
   rag-assistant-service:
     build: ../services/rag-assistant-service
+    env_file:
+      - ../.env
+    environment:
+      CLAIMS_INTAKE_URL: http://claims-intake-service:8082
+      CORS_ALLOWED_ORIGIN: *public-origin
+    depends_on:
+      - claims-intake-service
+    # /health is liveness only (200 while models load in the background). start_period covers
+    # the first model load so a slow start isn't flagged unhealthy.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
   frontend:
-    build: ../frontend
+    build:
+      context: ../frontend
+      args:
+        # Baked in at build time and called from the browser. Both point at the public origin,
+        # because nginx serves /claims/ and /assistant/ there. They can't be left empty:
+        # api.js falls back to localhost when a value is empty.
+        VITE_CLAIMS_API_URL: *public-origin
+        VITE_RAG_API_URL: *public-origin
+    volumes:
+      - ./nginx/prod.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - claims-intake-service
+      - rag-assistant-service
     restart: unless-stopped
+
+volumes:
+  redpanda-data:

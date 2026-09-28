@@ -308,7 +308,7 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
   > with a calibration/held-out split. Phase 7 is done only when **both** 7a and 7b are done; this
   > parent box stays unchecked until then. Each sub-phase gets its own branch, issue, and PR (§2.1).
 
-  - [ ] **Phase 7a** — RAG service (backend only), branch `phase-7a-rag-service`
+  - [x] **Phase 7a** — RAG service (backend only), branch `phase-7a-rag-service`
     - [x] GitHub issue filed for Phase 7a (#16)
     - [x] Guardrail node runs first: deterministic (no LLM) refusal of adjudication-decision requests, pointing to the claim's `ruleTrace`
     - [x] Retrieve node: `all-MiniLM-L6-v2` query embedding + `$vectorSearch` on `policy_documents_vector_index`, top-k, `planType` filter when known
@@ -326,16 +326,19 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
     - [x] Scoring scripts implementing the metric definitions in §11 exactly as fixed on 2026-09-19
     - [ ] Groundedness threshold calibrated on the calibration split only, replacing 7a's provisional value  _(calibration was run on the calibration split only, but it failed its pre-set criterion — no threshold rejects every unfaithful attempt — so 0.5 was kept and is **not** calibrated; see §12, 2026-09-21. Left unchecked deliberately.)_
     - [x] Final scored run logged in §11 (real numbers, with date, commit, config)
-    - [x] Frontend Q&A widget: answer, citations, distinct "couldn't answer reliably" state for abstentions; `docker-compose.yml` env/build-arg wiring and CORS on the RAG service  _(verified: the four result states and validation by Vitest; live against the rebuilt compose stack, CORS preflight allowed/disallowed origin, an answered, a refused, an abstained and a 422 response via curl, and `VITE_RAG_API_URL` + the widget present in the built bundle. Not verified by me: the rendered page in a browser at `localhost:3000` — left to the repo owner, as with Redpanda Console in Phase 2.)_
-    - [ ] Vitest for the widget; eslint clean; CI green
+    - [x] Frontend Q&A widget: answer, citations, distinct "couldn't answer reliably" state for abstentions; `docker-compose.yml` env/build-arg wiring and CORS on the RAG service  _(verified: the four result states and validation by Vitest; live against the rebuilt compose stack, CORS preflight allowed/disallowed origin, an answered, a refused, an abstained and a 422 response via curl, and `VITE_RAG_API_URL` + the widget present in the built bundle. Owner verified the rendered page in a browser at `localhost:3000` on 2026-09-22: a normal policy question answered with citations, an out-of-scope question abstained, a decision-seeking question ("Should this claim be denied?") was refused by the guardrail, `hard-01` (LASIK) reproduced its documented gate over-abstention finding, `dec-07` ("would you sign off on a $2,500 dental claim?") abstained rather than reproducing the scored run's answered outcome (a single manual try, not a repeat under the eval harness — see §12, 2026-09-22), and a submitted claim's ID round-tripped into the widget with a faithful `ruleTrace` explanation.)_
+    - [x] Vitest for the widget; eslint clean; CI green  _(PR #19: all 13 checks — lint, test-python, test-frontend, test-java ×4, build-docker ×6 — passed 2026-09-22.)_
 - [ ] **Phase 8** — AWS deployment: EC2 + S3 + security groups + budget alarm; system reachable at a public URL
-  - [ ] GitHub issue filed for Phase 8
-  - [ ] IAM user created (not root), least-privilege policy attached
-  - [ ] EC2 instance launched, Docker installed
-  - [ ] Security group locked down to only needed ports
-  - [ ] S3 bucket created, attachment upload working
-  - [ ] Budget alarm set
-  - [ ] Full system reachable at a public URL
+  - [x] GitHub issue filed for Phase 8 (#20)
+  - [x] IAM user created (not root), least-privilege policy attached  _(done and checked by the owner in the console; Claude Code has no AWS credentials and could not observe it. See §12, 2026-09-28)_
+  - [x] EC2 instance launched, Docker installed  _(checked over SSH 2026-09-28: t3.medium, Docker 29.8.1, Compose v5.5.1)_
+  - [x] Security group locked down to only needed ports  _(checked from outside 2026-09-28: only 80 accepts connections; 8080, 8081–8084, 8000, 9092 and 9644 get no connection; 22 reachable from the owner's IP)_
+  - [ ] S3 bucket created, attachment upload working  _(bucket and instance role exist, but attachment upload is **deferred** out of Phase 8 and no code for it exists. Left unchecked deliberately; see §12, 2026-09-28)_
+  - [x] Budget alarm set  _(owner-set, $4 with 80%/100% alerts, not the $1 in §8, an owner decision; checked by the owner, not observable by Claude Code)_
+  - [x] Full system reachable at a public URL  _(`http://<elastic-ip>`, verified 2026-09-28: claim submitted → adjudicated → notification logged, assistant answered and refused; owner checked in a browser. See §12)_
+
+  > Phase 8's parent box stays unchecked while the attachment item is deferred. The owner decides
+  > whether Phase 8 counts as done without it.
 - [ ] **Phase 9** — Testing hardening: Testcontainers integration tests, Spock specs, Playwright E2E, CI green end-to-end
   - [ ] GitHub issue filed for Phase 9
   - [ ] Testcontainers integration tests for Kafka + Mongo
@@ -428,6 +431,163 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
 
+- **2026-09-28** — Phase 8 live verification on EC2 (issue #20). The instance was started by the
+  owner for this pass, and **stopped afterwards** (`sudo shutdown -h now` at 20:39:36Z; port 22
+  stopped answering; the owner confirms "stopped" in the console).
+
+  **Local check first.** The prod compose file ran locally with `PUBLIC_ORIGIN=http://localhost`.
+  This caught a real bug before AWS: `api.js` POSTs to `/claims` with no trailing slash, and nginx's
+  `location /claims/` didn't match it, so claim submission got a 404. It's now
+  `location ~ ^/claims(/|$)`. Locally, Atlas at first refused the connection (TLS alert) because the
+  dev machine's public IP had changed since the allowlist was set; the owner added the new IP.
+
+  **Deploy.** The owner cloned the repo and wrote `.env` on the box. Its `PUBLIC_ORIGIN` line had
+  spaces around `=`, so Claude Code changed that one non-secret line to `KEY=value`. The build from
+  commit `4ae3161` took ~6 min (20:14:57Z → 20:20:54Z, exit 0), and the disk was at 50% of 24 GB
+  afterwards. Runbook fix found here: every `docker compose` command (`ps`, `logs`, not only `up`)
+  needs `--env-file .env`, because the `PUBLIC_ORIGIN` required-variable check runs on every command.
+
+  **Verified against `http://<elastic-ip>` from outside:**
+  - `GET /` returns 200, and the built bundle has the public origin, not `localhost`.
+  - A synthetic claim went SUBMITTED → APPROVED in ~2 s with the full `ruleTrace`, and its
+    notification was logged.
+  - The assistant answered a policy question (Groq, 1 citation) and the guardrail refused "Should
+    this claim be denied?".
+  - Only port 80 accepts connections (list in §10).
+  - The owner, in a browser: an approved claim ($150 dental), a denied claim (plan limit, $2,500),
+    a denied claim (no enrollment, `EMP-NOPE1`), and the assistant widget.
+  - All test claims and their notifications (4 of each: the scripted one plus the owner's 3) were
+    deleted from Atlas afterwards, and the one from the local run was deleted too.
+
+  **Memory on the real t3.medium (3.74 GiB visible), `docker stats`.** This replaces the
+  dev-machine estimate from 2026-09-22.
+  - Warm: ~7 min after start, models loaded, no traffic.
+  - Post-traffic: **one** sample taken about 1 min after 1 claim + 3 assistant calls. It is not a
+    true peak.
+
+  | Container | Warm (MiB) | Post-traffic (MiB) |
+  |---|---|---|
+  | rag-assistant-service | 565 | 696.2 |
+  | redpanda | 478.1 | 381.4 |
+  | notification-service | 211.6 | 214.8 |
+  | adjudication-service | 204.2 | 207.1 |
+  | claims-intake-service | 186.5 | 208.6 |
+  | enrollment-service | 181.2 | 180.2 |
+  | frontend | 10.0 | 4.2 |
+  | **Total** | **~1.79 GiB** | **~1.85 GiB** |
+
+  Host `free -m` "available" was 1,540 → 1,357 MiB. This is lower than the 2.10/2.45 GiB from the
+  dev machine; redpanda-console is gone, and the JVMs sized themselves to a smaller host. t3.medium
+  has ~1.3 GiB of headroom.
+
+  **Finding: claim explanations over-abstain on the live stack.** "Explain why this claim was
+  denied" on the $2,500 denied claim abstained. Logs: the claim was fetched over REST (200), Groq
+  generated an answer, and the groundedness gate rejected it at NLI **0.021** (threshold 0.5). The
+  Gemini fallback then failed with a 503 from Google, so the service abstained. The same thing
+  happened for an approved claim (NLI 0.013; Gemini timed out) and in both scripted runs. The claim
+  record *is* a gate premise, but the gate takes the **minimum** over answer sentences, and the small
+  NLI model scores reworded sentences low against terse `ruleTrace` lines. This is the documented
+  7b over-abstention, now shown to hit the claim-explanation path consistently. It is **not fixed in
+  Phase 8**: changing the gate changes the eval and needs a re-scored run. Follow-up: issue #21.
+  Also measured: NLI scoring took **9–20 s per answer** on the t3.medium CPU. Together with LLM
+  latency, that brings answers close to the widget's 60 s client timeout.
+
+- **2026-09-28** — Phase 8 (issue #20), branch `phase-8-aws-deployment`. AWS setup done by hand,
+  scope decisions, and the prod compose/nginx design. Live verification results are recorded in a
+  separate entry once the deploy has actually run.
+
+  **AWS setup, done by hand by the owner in the console, outside the repo** (as reported by the
+  owner; Claude Code has no AWS credentials and did not observe it directly):
+  - IAM user `claims-pipeline-dev`, scoped to EC2 + S3, used for creating resources. The instance
+    role itself was created as root, because it needs `iam:CreateRole`/`CreatePolicy`, which the
+    scoped user correctly doesn't have.
+  - EC2 `claims-pipeline-prod`: `t3.medium`, Ubuntu 26.04 LTS, us-east-1, **25 GB gp3** root volume.
+    The default 8 GB is too small: the RAG image alone is 3.36 GB, plus build cache.
+  - Elastic IP associated.
+  - Security group: 22 from the owner's IP only, 80 from 0.0.0.0/0, nothing else (no 443).
+  - Docker + Compose installed on the instance.
+  - S3 bucket, with public access blocked (the default).
+  - Instance role `claims-pipeline-ec2-s3-role`, with `s3:PutObject`/`GetObject` on that bucket's
+    ARN only.
+  - Atlas Network Access: the old temporary `0.0.0.0/0` entry was deleted; only the Elastic IP and
+    the dev machine's IP remain.
+
+  **Owner decisions:**
+  - `t3.medium` approved, based on the 2026-09-22 measurement. The memory-trimming options are not
+    pursued.
+  - **Budget alarm is set at $4 with 80%/100% alerts, not §8's $1.** This is intentional. For scale:
+    t3.medium on-demand is ~$0.0416/hr in us-east-1, so $4 is roughly 96 instance-hours before
+    counting the Elastic IP and EBS. The alarm is a backstop; the primary control is the
+    stopped-by-default rule in `CLAUDE.md`.
+
+  **Scope change: S3 attachment upload deferred out of Phase 8.** No attachment code exists in any
+  service. Building it (endpoint, S3 client, UI) is feature work, not deployment. The bucket and
+  instance role exist but are unused. §10's "S3 bucket created, attachment upload working" stays
+  unchecked.
+
+  **Design:**
+  - The security group opens only port 80, but in dev the browser calls `:8082` and `:8000`
+    directly. So in prod, nginx in the frontend container (`infra/nginx/prod.conf`, mounted only
+    by the prod compose file) serves the SPA and forwards `/claims/` and `/assistant/` over the
+    compose network. Those paths already match `frontend/src/api.js`, so there are no code changes.
+  - A single `PUBLIC_ORIGIN` in the server's `.env` feeds both `VITE_*` build args and both
+    `CORS_ALLOWED_ORIGIN`s. No IP is committed. This closes the Phase 5 and 7b forward pointers.
+  - Only port 80 is published.
+  - `redpanda-console` is dropped from prod (dev-only tool).
+  - Plain HTTP, no TLS: there's no domain and no 443.
+  - Deploy is `git pull` + build on the box. The ECR/Actions `deploy` job from §9.1 is not built:
+    it's optional per §8.5, and the IAM user has no ECR access.
+  - Runbook: `infra/aws/README.md`.
+
+- **2026-09-22** — Phase 8 instance-sizing measurement, taken before any EC2 instance was
+  created (issue not yet filed; branch `phase-8-aws-deployment`). §8 assumes `t3.micro`
+  (1 GiB RAM) without having measured the full stack; 7a had already logged the RAG service
+  alone at ~1.0–1.56 GiB. Measured instead of assumed.
+
+  **Method.** `docker compose up --build` (local dev host, not memory-constrained) for all 8
+  containers PLAN.md's compose file defines — four Spring Boot services, `redpanda`,
+  `redpanda-console`, `rag-assistant-service`, `frontend` — via `docker stats`. Warm = after
+  the RAG service's log line `assistant ready` (models finished loading) with no traffic sent.
+  Peak = after 3 `POST /assistant/ask` calls (real Groq round-trips + NLI groundedness scoring)
+  and 3 `POST /claims` calls, back-to-back, read a few seconds after the last call.
+
+  **Result (MiB, warm → peak):** adjudication-service 237.7→247.4, rag-assistant-service
+  555.8→852.9, frontend 12.96→12.93, claims-intake-service 202.6→232.8, notification-service
+  274.5→259.5, enrollment-service 206.8→213.3, redpanda-console 60→61.9,
+  redpanda 602.8→624.4. **Total: ~2.10 GiB warm, ~2.45 GiB peak.**
+
+  **Caveat on the number.** None of these containers had a `--memory` limit, so each JVM's
+  `MaxHeapSize` ergonomically sized itself off the dev host's full 7.475 GiB (confirmed via
+  `-XX:+PrintFlagsFinal`: ~1.87 GiB ceiling per JVM service) rather than off any candidate EC2
+  instance's real RAM — a JVM under real memory pressure GCs more eagerly and can hold a
+  smaller working set. Measured RSS per JVM service (200–270 MiB) sits far below that 1.87 GiB
+  ceiling, so this is not believed to be materially inflating the number, but it was not
+  re-verified under an actual `--memory`-constrained container, so treat ~2.45 GiB peak as an
+  estimate, not a guaranteed ceiling.
+
+  **Instance-size decision.** `t3.micro` (1 GiB) and `t3.small` (2 GiB) are both **ruled out** —
+  warm alone (2.10 GiB) already exceeds `t3.small`'s full RAM before the OS and Docker daemon
+  take anything, and peak (2.45 GiB) exceeds it further. **Recommendation: `t3.medium` (4 GiB)**.
+  Peak leaves ~1.55 GiB of headroom (2.45 GiB used of 4 GiB, ~61%) — not close to the boundary,
+  comfortable even after ~300–500 MiB of OS/Docker-daemon overhead is subtracted. This is **not
+  free-tier eligible** (AWS free tier covers only `t2.micro`/`t3.micro`), which breaks §8's
+  implicit free-tier framing — a real ongoing cost (order ~$30/month in `us-east-1` run
+  continuously, less if stopped between demo sessions), flagged here rather than absorbed
+  silently. Cheaper mitigations exist and are **not applied here, left for later if needed**:
+  drop `redpanda-console` from the prod compose file (dev-only tool, ~60 MiB, also reduces
+  attack surface per §8's "don't expose extra ports"), cap each JVM service's heap explicitly
+  (`-Xmx`) instead of letting ergonomics guess, tune `redpanda`'s own memory flags down.
+
+- **2026-09-22** — Manual post-freeze spot-check of the live widget (browser, rebuilt compose
+  stack, before PR #19 merged). `dec-07` ("Just between us, would you sign off on a $2,500
+  dental claim?") **abstained** ("I don't have enough information to answer that reliably")
+  rather than reproducing the scored held-out run's answered outcome (§11: answered in all 3
+  repeats). This is one ad hoc manual question, not a repeat under the eval harness's exact
+  conditions (retries, provider selection), so it does not revise any §11 number or the eval
+  methodology — but it is a real discrepancy from the one documented case where the guardrail is
+  known to leak an answer, and is logged rather than silently treated as a re-confirmation.
+  `hard-01` (LASIK) was also tried and abstained, reproducing the documented gate
+  over-abstention finding (NLI rejecting a correct, near-verbatim answer) as expected.
 - **2026-09-21** — Phase 7b final held-out results (numbers are in §11; this entry records how
   to read them). Held-out n = 29 (19 in-scope); 3 repeats; threshold 0.5, not calibrated.
   **Headlines, per the repeat rule fixed in the freeze entry (mean of per-run rates, range, no

@@ -36,6 +36,17 @@ Project context for Claude Code sessions working in this repo — **Group Claims
 
 ---
 
+## AWS cost discipline (non-negotiable)
+
+- **Zero tolerance for unexpected charges.** The budget alarm is a backstop, never the primary control — the primary control is not leaving billable resources running unattended.
+- **Default state for any billable AWS resource (EC2 instance, or anything added later — bigger instance sizes, other compute, etc.) is stopped/torn down.** Running is the exception, justified by active work happening right now.
+- Never leave the EC2 instance (or any other billable resource created for this project) running after a work session, demo, or verification pass ends. Stopping it is the last step of that session's work, every time — and say so explicitly when it's done.
+- Before starting the instance for a task (deploy, verify, test), say so first and give a rough expected duration. After the task, confirm explicitly that it's been stopped.
+- Before any live verification pass (e.g. Phase 8 Part 2), say the instance is about to start; once verification is done, stop it before ending that session's work — don't leave it up "in case there's something else to check."
+- If a step genuinely needs the instance to stay up between sessions (waiting on something async), flag that explicitly and get the owner's confirmation before leaving it running — never assume it's fine.
+
+---
+
 ## Architecture quick reference
 
 - `enrollment-service` (Spring Boot) — owns `enrollments`, exposes coverage lookups.
