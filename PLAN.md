@@ -330,12 +330,15 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
     - [x] Vitest for the widget; eslint clean; CI green  _(PR #19: all 13 checks — lint, test-python, test-frontend, test-java ×4, build-docker ×6 — passed 2026-09-22.)_
 - [ ] **Phase 8** — AWS deployment: EC2 + S3 + security groups + budget alarm; system reachable at a public URL
   - [x] GitHub issue filed for Phase 8 (#20)
-  - [ ] IAM user created (not root), least-privilege policy attached
-  - [ ] EC2 instance launched, Docker installed
-  - [ ] Security group locked down to only needed ports
-  - [ ] S3 bucket created, attachment upload working
-  - [ ] Budget alarm set
-  - [ ] Full system reachable at a public URL
+  - [x] IAM user created (not root), least-privilege policy attached  _(done and checked by the owner in the console; Claude Code has no AWS credentials and could not observe it. See §12, 2026-09-28)_
+  - [x] EC2 instance launched, Docker installed  _(checked over SSH 2026-09-28: t3.medium, Docker 29.8.1, Compose v5.5.1)_
+  - [x] Security group locked down to only needed ports  _(checked from outside 2026-09-28: only 80 accepts connections; 8080, 8081–8084, 8000, 9092 and 9644 get no connection; 22 reachable from the owner's IP)_
+  - [ ] S3 bucket created, attachment upload working  _(bucket and instance role exist, but attachment upload is **deferred** out of Phase 8 and no code for it exists. Left unchecked deliberately; see §12, 2026-09-28)_
+  - [x] Budget alarm set  _(owner-set, $4 with 80%/100% alerts, not the $1 in §8, an owner decision; checked by the owner, not observable by Claude Code)_
+  - [x] Full system reachable at a public URL  _(`http://<elastic-ip>`, verified 2026-09-28: claim submitted → adjudicated → notification logged, assistant answered and refused; owner checked in a browser. See §12)_
+
+  > Phase 8's parent box stays unchecked while the attachment item is deferred. The owner decides
+  > whether Phase 8 counts as done without it.
 - [ ] **Phase 9** — Testing hardening: Testcontainers integration tests, Spock specs, Playwright E2E, CI green end-to-end
   - [ ] GitHub issue filed for Phase 9
   - [ ] Testcontainers integration tests for Kafka + Mongo
@@ -427,6 +430,67 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 ---
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
+
+- **2026-09-28** — Phase 8 live verification on EC2 (issue #20). The instance was started by the
+  owner for this pass, and **stopped afterwards** (`sudo shutdown -h now` at 20:39:36Z; port 22
+  stopped answering; the owner confirms "stopped" in the console).
+
+  **Local check first.** The prod compose file ran locally with `PUBLIC_ORIGIN=http://localhost`.
+  This caught a real bug before AWS: `api.js` POSTs to `/claims` with no trailing slash, and nginx's
+  `location /claims/` didn't match it, so claim submission got a 404. It's now
+  `location ~ ^/claims(/|$)`. Locally, Atlas at first refused the connection (TLS alert) because the
+  dev machine's public IP had changed since the allowlist was set; the owner added the new IP.
+
+  **Deploy.** The owner cloned the repo and wrote `.env` on the box. Its `PUBLIC_ORIGIN` line had
+  spaces around `=`, so Claude Code changed that one non-secret line to `KEY=value`. The build from
+  commit `4ae3161` took ~6 min (20:14:57Z → 20:20:54Z, exit 0), and the disk was at 50% of 24 GB
+  afterwards. Runbook fix found here: every `docker compose` command (`ps`, `logs`, not only `up`)
+  needs `--env-file .env`, because the `PUBLIC_ORIGIN` required-variable check runs on every command.
+
+  **Verified against `http://<elastic-ip>` from outside:**
+  - `GET /` returns 200, and the built bundle has the public origin, not `localhost`.
+  - A synthetic claim went SUBMITTED → APPROVED in ~2 s with the full `ruleTrace`, and its
+    notification was logged.
+  - The assistant answered a policy question (Groq, 1 citation) and the guardrail refused "Should
+    this claim be denied?".
+  - Only port 80 accepts connections (list in §10).
+  - The owner, in a browser: an approved claim ($150 dental), a denied claim (plan limit, $2,500),
+    a denied claim (no enrollment, `EMP-NOPE1`), and the assistant widget.
+  - All test claims and their notifications (4 of each: the scripted one plus the owner's 3) were
+    deleted from Atlas afterwards, and the one from the local run was deleted too.
+
+  **Memory on the real t3.medium (3.74 GiB visible), `docker stats`.** This replaces the
+  dev-machine estimate from 2026-09-22.
+  - Warm: ~7 min after start, models loaded, no traffic.
+  - Post-traffic: **one** sample taken about 1 min after 1 claim + 3 assistant calls. It is not a
+    true peak.
+
+  | Container | Warm (MiB) | Post-traffic (MiB) |
+  |---|---|---|
+  | rag-assistant-service | 565 | 696.2 |
+  | redpanda | 478.1 | 381.4 |
+  | notification-service | 211.6 | 214.8 |
+  | adjudication-service | 204.2 | 207.1 |
+  | claims-intake-service | 186.5 | 208.6 |
+  | enrollment-service | 181.2 | 180.2 |
+  | frontend | 10.0 | 4.2 |
+  | **Total** | **~1.79 GiB** | **~1.85 GiB** |
+
+  Host `free -m` "available" was 1,540 → 1,357 MiB. This is lower than the 2.10/2.45 GiB from the
+  dev machine; redpanda-console is gone, and the JVMs sized themselves to a smaller host. t3.medium
+  has ~1.3 GiB of headroom.
+
+  **Finding: claim explanations over-abstain on the live stack.** "Explain why this claim was
+  denied" on the $2,500 denied claim abstained. Logs: the claim was fetched over REST (200), Groq
+  generated an answer, and the groundedness gate rejected it at NLI **0.021** (threshold 0.5). The
+  Gemini fallback then failed with a 503 from Google, so the service abstained. The same thing
+  happened for an approved claim (NLI 0.013; Gemini timed out) and in both scripted runs. The claim
+  record *is* a gate premise, but the gate takes the **minimum** over answer sentences, and the small
+  NLI model scores reworded sentences low against terse `ruleTrace` lines. This is the documented
+  7b over-abstention, now shown to hit the claim-explanation path consistently. It is **not fixed in
+  Phase 8**: changing the gate changes the eval and needs a re-scored run. Follow-up: issue #21.
+  Also measured: NLI scoring took **9–20 s per answer** on the t3.medium CPU. Together with LLM
+  latency, that brings answers close to the widget's 60 s client timeout.
 
 - **2026-09-28** — Phase 8 (issue #20), branch `phase-8-aws-deployment`. AWS setup done by hand,
   scope decisions, and the prod compose/nginx design. Live verification results are recorded in a

@@ -28,6 +28,7 @@ git clone https://github.com/SiddhiKhairee/insurance-claim-platform.git
 cd insurance-claim-platform
 cp .env.example .env && chmod 600 .env
 # Fill in .env: MONGODB_URI, GROQ_API_KEY, GEMINI_API_KEY, PUBLIC_ORIGIN=http://<elastic-ip>
+# Write each line as KEY=value, with no spaces around '='.
 docker compose -f infra/docker-compose.prod.yml --env-file .env up -d --build
 ```
 
@@ -44,10 +45,13 @@ If a build fails partway and needs a retry, run `docker system prune` first to f
 
 ## Verify
 
+Every `docker compose` command needs `--env-file .env`, not just `up`. The `PUBLIC_ORIGIN` check runs on every command, so `ps` and `logs` fail without it.
+
 ```bash
-docker compose -f infra/docker-compose.prod.yml ps        # all running; rag-assistant-service healthy
-docker compose -f infra/docker-compose.prod.yml logs -f rag-assistant-service   # wait for "assistant ready"
-docker stats --no-stream                                   # memory against the 4 GiB box
+C="docker compose -f infra/docker-compose.prod.yml --env-file .env"
+$C ps                                   # all running; rag-assistant-service healthy
+$C logs -f rag-assistant-service        # wait for "assistant ready"
+docker stats --no-stream                # memory against the 4 GiB box
 ```
 
 From outside, `http://<elastic-ip>` serves the app, and `/claims/` and `/assistant/` are forwarded by nginx (`infra/nginx/prod.conf`). The service ports (8081–8084, 8000, 9092) aren't published and aren't open in the security group, so a request to them from outside should time out.
