@@ -382,7 +382,7 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
         - [x] Tests: JUnit + Mockito for appeal validation and decisions (mocked storage/S3), MockMvc + Spring Security for admin auth (401/403/200), notification consumer test. `ruleTrace` is unchanged after an appeal, asserted explicitly
         - [x] Backend flow verified locally via curl (local-disk storage): deny → appeal with document → admin sign-up/login → list → view + download document → overturn and uphold paths → public `GET /claims/{id}` shows outcome with no keys → notification logged
         - [x] `CLAUDE.md` architecture reference updated (new `admin_users` collection, `claim.appeal-decided` topic, admin role)
-        - [ ] CI green (lint, test-java, build-docker)
+        - [x] CI green (lint, test-java, build-docker)  _(PR #24: all 13 checks, including lint, test-java ×4, test-python, test-frontend and build-docker ×6, passed 2026-09-28)_
     - [ ] **Phase 8b Part 2** — Frontend, RAG boundaries, live deploy. Branch `phase-8b2-appeals-frontend-deploy` (start only after Part 1 is merged)
       - [ ] GitHub issue filed for Phase 8b Part 2
       - [ ] Plan approved
