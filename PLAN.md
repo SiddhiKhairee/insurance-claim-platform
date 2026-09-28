@@ -356,7 +356,7 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
       - [ ] Public `GET /claims/{claimId}` shows appeal status/outcome but **no S3 keys or document links**
       - [ ] Upload limits raised consistently in Spring (multipart) and nginx (`client_max_body_size`)
     - **Backend: admin accounts and review (claims-intake-service)**
-      - [ ] `admin_users` collection; `POST /admin/signup` gated by `ADMIN_SIGNUP_CODE`; `POST /admin/login`; bcrypt password hashes; signed session token (secret in `.env`)
+      - [ ] `admin_users` collection; `POST /admin/signup` gated by `ADMIN_SIGNUP_CODE` (constant-time compare; wrong code rejected with no account created; unset/empty code means sign-up is disabled, and all three are tested); `POST /admin/login`; bcrypt password hashes; signed session token (secret in `.env`)
       - [ ] Spring Security: every `/admin/**` endpoint except signup/login requires the admin role; 401/403 otherwise
       - [ ] `GET /admin/appeals` lists appealed claims (pending first, filterable by status)
       - [ ] `GET /admin/appeals/{claimId}` returns the claim, the rule engine's decision, `decisionReason`, `ruleTrace`, and document metadata
@@ -471,6 +471,31 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 ---
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
+
+- **2026-09-28** — Phase 8b detail (owner-confirmed): **how the admin signup code works.** This
+  expands the `ADMIN_SIGNUP_CODE` gate in the Phase 8b scope entry below.
+  - **Why:** the site is on a public URL. Without a gate, anyone who found `/admin` could sign up as
+    an admin and overturn denied claims.
+  - **Setup:** the owner picks a long random code and puts it **only** in the server's `.env`
+    (`ADMIN_SIGNUP_CODE=...`), next to the other secrets. It's never committed. `.env.example` gets
+    a placeholder only.
+  - **Sign-up:** the `/admin` sign-up form has three fields: username, password, signup code. The
+    backend compares the submitted code with the one in `.env`, using a constant-time comparison.
+    - On a match, the admin account is created, with the password stored as a bcrypt hash.
+    - On no match, the request is rejected with a generic error, and no account is created.
+  - **After sign-up:** admins log in with username and password only. The code is needed once, at
+    sign-up.
+  - **Closing sign-ups:** change or remove `ADMIN_SIGNUP_CODE` in `.env` and restart the service.
+    Existing admins keep working. If the variable is unset or empty, admin sign-up is
+    **disabled**, never open.
+  - **Alternatives considered and not chosen:**
+    - A single admin seeded from `ADMIN_USERNAME`/`ADMIN_PASSWORD` in `.env`, with no sign-up
+      page. It's simpler, but doesn't meet the owner's requirement that admins can sign up.
+    - "First person to sign up becomes admin." Rejected: whoever finds the page first owns the
+      admin role.
+  - **Limit, stated:** the site is plain HTTP, so the code and passwords cross the network
+    unencrypted at sign-up and login. That's acceptable only for this synthetic-data demo (see the
+    Phase 8b scope entry below).
 
 - **2026-09-28** — Scope decision (owner): **supporting documents exist for appeals, and appeals
   get a human reviewer and an admin panel.** This gives a real purpose to §8.4 and §10's "attachment
