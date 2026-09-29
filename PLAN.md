@@ -384,19 +384,19 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
         - [x] `CLAUDE.md` architecture reference updated (new `admin_users` collection, `claim.appeal-decided` topic, admin role)
         - [x] CI green (lint, test-java, build-docker)  _(PR #24: all 13 checks, including lint, test-java ×4, test-python, test-frontend and build-docker ×6, passed 2026-09-28)_
     - [ ] **Phase 8b Part 2** — Frontend, RAG boundaries, live deploy. Branch `phase-8b2-appeals-frontend-deploy` (start only after Part 1 is merged)
-      - [ ] GitHub issue filed for Phase 8b Part 2
-      - [ ] Plan approved
+      - [x] GitHub issue filed for Phase 8b Part 2 (#25)
+      - [x] Plan approved  _(2026-09-28 session, before implementation; the approved amendments are reflected in #25's checklist)_
       - **RAG assistant: boundaries (checked, not assumed)**
-        - [ ] rag-assistant-service has no access to documents or document references (the claim context it receives excludes them)
-        - [ ] When explaining a claim, it reports a recorded appeal outcome accurately (rule decision, then the human decision) and never predicts or suggests one
-        - [ ] Guardrail refuses appeal-outcome questions ("will my appeal be approved?", "should the admin overturn this?"), with pytest cases; eval set re-run to confirm no regression, logged in §11/§12
+        - [x] rag-assistant-service has no access to documents or document references (the claim context it receives excludes them)  _(`test_reviewer_note_and_document_references_never_survive_parsing`, `test_unknown_appeal_values_are_dropped_not_copied`; pytest 222 passed, 1 skipped, 2026-09-29)_
+        - [x] When explaining a claim, it reports a recorded appeal outcome accurately (rule decision, then the human decision) and never predicts or suggests one  _(`test_render_states_the_engine_decision_before_the_human_appeal_outcome`, upheld/pending render tests, `test_graph.py` cases; same pytest run)_
+        - [ ] Guardrail refuses appeal-outcome questions ("will my appeal be approved?", "should the admin overturn this?"), with pytest cases; eval set re-run to confirm no regression, logged in §11/§12  _(pytest cases pass; the eval re-run shows a 1-answer drop, so this stays open until the owner decides. See §12, 2026-09-29)_
       - **Frontend**
-        - [ ] Client-side routing: claimant pages and `/admin`
-        - [ ] Claimant: "Appeal" action on a DENIED claim (reason + file picker with the same type/size limits), appeal status and outcome shown on the claim status view
-        - [ ] Admin: sign-up (with signup code), login, logout; appealed-claims list; claim review page showing the rule decision, `ruleTrace`, document links, and Uphold/Overturn with a required note
-        - [ ] Vitest for the appeal form and admin pages
+        - [x] Client-side routing: claimant pages and `/admin`  _(verified in the browser walk-through, 2026-09-29)_
+        - [x] Claimant: "Appeal" action on a DENIED claim (reason + file picker with the same type/size limits), appeal status and outcome shown on the claim status view  _(same walk-through)_
+        - [x] Admin: sign-up (with signup code), login, logout; appealed-claims list; claim review page showing the rule decision, `ruleTrace`, document links, and Uphold/Overturn with a required note  _(same walk-through)_
+        - [x] Vitest for the appeal form and admin pages  _(eslint clean; Vitest 70 passed in 8 files, 2026-09-29)_
       - **Verify, docs, deploy**
-        - [ ] Full flow verified locally in a browser (local-disk storage): deny → appeal with document → admin sign-up/login → review → overturn and uphold paths → claimant sees outcome → notification logged
+        - [x] Full flow verified locally in a browser (local-disk storage): deny → appeal with document → admin sign-up/login → review → overturn and uphold paths → claimant sees outcome → notification logged  _(2026-09-29; see §12)_
         - [ ] Verified live on EC2: document lands in the private S3 bucket through the instance role, admin can open it, public claim response exposes no keys; test data and S3 objects cleaned up; **instance stopped afterwards**
         - [ ] README (incl. plain-HTTP and no-claimant-accounts limits) and `infra/aws/README.md` updated
         - [ ] CI green (lint, test-java, test-python, test-frontend, build-docker)
@@ -484,6 +484,16 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
       splits the guardrail refused 3 of 9 decision-seeking rows. Adjudication itself is
       unaffected (the service has no write path to claims), but the guardrail's regexes are
       best-effort and this is where they leak.
+- **RAG eval re-run for Phase 8b Part 2 (2026-09-28, regression check; the 2026-09-21 numbers
+  above stay the reported results).** Same held-out split, providers, NLI model, k and threshold,
+  3 repeats. Run from commit `cdb7f0e` plus the uncommitted Part 2 working tree; see
+  `_meta.fingerprint` in `data/eval/runs/2026-09-28-final-heldout.jsonl`. Retrieval unchanged
+  (0 of 87 retrievals differ). **Answer correctness: 14/19, 13/19, 14/19; mean 71.9%, range
+  68.4%–73.7%** (was 73.7% in every run). Abstention correctness unchanged at 90.0% (9/10) per run;
+  decision-seeking refused by the guardrail unchanged at 2/5. Groundedness: before the gate mean
+  0.814 (0.844, 0.753, 0.845), after the gate mean 0.951 (0.961, 0.930, 0.963). The one changed
+  outcome is `fact-03` in run 2 (see §12, 2026-09-29). 9 in-scope records were hand-reviewed to
+  correct (`para-08` ×3, `para-09` ×3, `hard-08` ×3), in `data/eval/reviews.jsonl`.
 - [ ] Test coverage % (Java services combined, and RAG service separately)
 - [ ] CI pipeline runtime (before/after any optimization, if you do one)
 - [ ] End-to-end event latency: time from `claim.submitted` publish to `claim.adjudicated` publish (measured, not estimated)
@@ -491,6 +501,38 @@ Check off a phase only when its deliverable actually works end-to-end, not when 
 ---
 
 ## 12. Session Log (append-only — corrections and scope changes go here, dated, never silently rewritten above)
+
+- **2026-09-29** — Phase 8b Part 2 checkpoint (issue #25, branch
+  `phase-8b2-appeals-frontend-deploy`). Frontend, RAG boundaries and local verification are done;
+  the AWS console steps, the live EC2 pass, docs sign-off and CI are still open.
+  - **Local browser walk-through (owner, dev compose stack against Atlas, local-disk storage).**
+    Synthetic employee `EMP-25349`, two dental claims over the $2,000 limit ($2,500 and $3,000). Both
+    were DENIED by the engine ("amount exceeds plan limit"). Each was appealed with a synthetic
+    400-byte PDF. The owner signed up an admin with the signup code, logged in, opened each
+    review page (rule decision, `ruleTrace`, document link), overturned one and upheld the other
+    with a note, logged out, and saw each outcome on the claim page. Atlas confirmed 2 appeals and
+    4 notifications (2 denials, 1 "overturned", 1 "upheld", each with the reviewer note). Both
+    claims' engine-written `status` stayed DENIED.
+  - **Cleanup:** the 2 claims, 2 appeals, 4 notifications and the test admin account were deleted
+    from Atlas (0 appeals and 0 admin accounts left), and both PDFs were deleted from the local
+    `appeal-docs` volume. The earlier `EMP-25349` claims from 2026-09-22 were left in place.
+  - **Tests:** RAG service ruff clean, pytest 222 passed, 1 skipped. Frontend eslint clean, Vitest
+    70 passed in 8 files.
+  - **Eval re-run: possible regression, left open for the owner.** Numbers are in §11. Answer
+    correctness dropped from 14/19 to 13/19 in run 2 only. The cause is `fact-03`: both run-2
+    attempts (Groq, then the Gemini fallback) stated the correct fact ("30 days from the
+    enrollment's effective date") but led with "The Group Disability Plan requires…" /
+    "Under the Group Disability Plan…", and the NLI gate scored them 0.009 and 0.005, so the
+    service abstained. Runs 1 and 3 answered it with the same fact and scored 0.98. So this is a
+    gate false negative on a correct answer (the known NLI over-abstention), not a wrong answer.
+    This session added one sentence to the generation prompt (appeal outcomes are reported only
+    as recorded, never predicted), and it cannot be ruled out that this shifted the phrasing.
+    The guardrail checkbox in §10 stays unchecked until the owner decides whether to accept this
+    or investigate further.
+  - **Guardrail note:** the eval's existing decision-seeking misses are unchanged. `dec-05`
+    ("please overturn the denial on my dental claim") still gets past the guardrail and abstains
+    downstream, and `dec-07` is still answered, as on 2026-09-21. The new appeal-outcome patterns
+    are covered by pytest cases, not by eval rows, because the eval set is frozen.
 
 - **2026-09-28** — Phase 8b Part 1 implemented (issue #23, branch `phase-8b1-appeals-backend`).
   Backend only: claims-intake-service (appeals, documents, admin accounts, review) and the
