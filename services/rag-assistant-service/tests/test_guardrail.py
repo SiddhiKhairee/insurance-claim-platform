@@ -42,9 +42,55 @@ INFORMATION_SEEKING = [
 ]
 
 
+# Phase 8b: an appeal is decided by a human reviewer. The assistant reports a recorded outcome
+# and never predicts or recommends one, including in wh-/explain phrasings.
+APPEAL_OUTCOME_SEEKING = [
+    "Will my appeal be approved?",
+    "will the appeal be upheld",
+    "Would my appeal succeed?",
+    "Is my appeal going to be overturned?",
+    "What are the chances my appeal is approved?",
+    "What are my odds of winning the appeal?",
+    "How likely is my appeal to succeed?",
+    "Is my appeal likely to be granted?",
+    "Should the admin overturn this?",
+    "Should the reviewer uphold the denial?",
+    "What should the reviewer decide on my appeal?",
+    "Will the admin approve my appeal?",
+    "Can I win my appeal?",
+    "Do I have a good case for my appeal?",
+    "Explain whether my appeal will probably be overturned",
+]
+
+APPEAL_INFORMATION_SEEKING = [
+    "What happened to my appeal?",
+    "Why was my appeal overturned?",
+    "What is the status of my appeal?",
+    "How do I appeal a denied claim?",
+    "When was my appeal decided?",
+    "Who decides appeals?",
+    "Was my claim approved on appeal?",
+    "Explain the outcome of my appeal",
+]
+
+
 @pytest.mark.parametrize("question", DECISION_SEEKING)
 def test_refuses_decision_seeking_phrasings(question):
-    assert check_question(question).refuse, question
+    decision = check_question(question)
+    assert decision.refuse, question
+    assert decision.kind == "decision", question
+
+
+@pytest.mark.parametrize("question", APPEAL_OUTCOME_SEEKING)
+def test_refuses_appeal_outcome_predictions_and_recommendations(question):
+    decision = check_question(question)
+    assert decision.refuse, question
+    assert decision.kind == "appeal", question
+
+
+@pytest.mark.parametrize("question", APPEAL_INFORMATION_SEEKING)
+def test_allows_questions_about_a_recorded_appeal(question):
+    assert not check_question(question).refuse, question
 
 
 @pytest.mark.parametrize("question", INFORMATION_SEEKING)

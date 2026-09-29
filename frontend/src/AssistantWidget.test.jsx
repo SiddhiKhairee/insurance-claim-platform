@@ -59,6 +59,29 @@ describe('AssistantWidget', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('titles an appeal-outcome refusal as a human reviewer decision and shows the appeal status', async () => {
+    askAssistant.mockResolvedValue({
+      outcome: 'refused',
+      answer: "I don't predict or decide appeals; a human reviewer decides them.",
+      reason: 'appeal_outcome_request',
+      citations: [],
+      claim: {
+        claimId: 'abc-123',
+        status: 'DENIED',
+        displayStatus: 'DENIED',
+        ruleTrace: [],
+        appeal: { status: 'PENDING_REVIEW', submittedOn: '2026-09-28', decidedOn: null },
+      },
+    })
+    render(<AssistantWidget />)
+
+    ask('Will my appeal be approved?')
+
+    expect(await screen.findByText(/appeals are decided by a human reviewer/i)).toBeInTheDocument()
+    expect(screen.queryByText(/decisions come from the rule engine/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Appeal: Pending review/)).toBeInTheDocument()
+  })
+
   it('shows a distinct "couldn\'t answer reliably" state for abstentions', async () => {
     askAssistant.mockResolvedValue({
       outcome: 'abstained',

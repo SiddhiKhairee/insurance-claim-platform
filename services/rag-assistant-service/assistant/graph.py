@@ -69,6 +69,7 @@ class AssistantState(TypedDict, total=False):
     question: str
     claim_id: str | None
     refused: bool
+    refusal_kind: str | None
     claim: ClaimContext | None
     premises: list[Premise]
     provider_index: int
@@ -80,8 +81,22 @@ class AssistantState(TypedDict, total=False):
     message: str | None
 
 
-def _refusal_with_claim(claim: ClaimContext) -> str:
-    parts = ["I don't make adjudication decisions; the rule engine does."]
+APPEAL_REFUSAL_GENERIC = (
+    "I don't predict or decide appeals. A human reviewer decides each appeal, and the outcome "
+    "appears on the claim once it has been recorded."
+)
+_APPEAL_REFUSAL_LEAD = "I don't predict or decide appeals; a human reviewer decides them."
+
+
+def _refusal_with_claim(claim: ClaimContext, kind: str) -> str:
+    """Refusal text that quotes the record: the rule engine's decision first, then any recorded
+    appeal outcome (a person's decision). Deterministic, never generated."""
+    lead = (
+        _APPEAL_REFUSAL_LEAD
+        if kind == "appeal"
+        else "I don't make adjudication decisions; the rule engine does."
+    )
+    parts = [lead]
     recorded = []
     if claim.status:
         recorded.append(f"status {claim.status}")
@@ -91,6 +106,9 @@ def _refusal_with_claim(claim: ClaimContext) -> str:
         recorded.append("ruleTrace: " + "; ".join(claim.rule_trace))
     if recorded:
         parts.append("For this claim the rule engine recorded " + "; ".join(recorded) + ".")
+    appeal = claim.appeal_sentence()
+    if appeal:
+        parts.append(appeal)
     return " ".join(parts)
 
 
@@ -98,20 +116,27 @@ def build_graph(deps: GraphDeps):
     def guardrail(state: AssistantState) -> AssistantState:
         decision = check_question(state["question"])
         if decision.refuse:
-            logger.info("guardrail refused question (rule=%s)", decision.matched_rule)
-        return {"refused": decision.refuse}
+            logger.info(
+                "guardrail refused question (kind=%s, rule=%s)", decision.kind,
+                decision.matched_rule,
+            )
+        return {"refused": decision.refuse, "refusal_kind": decision.kind}
 
     def refuse(state: AssistantState) -> AssistantState:
+        kind = state.get("refusal_kind") or "decision"
         claim = None
         if state.get("claim_id"):
             try:
                 claim = deps.claims.get_claim(state["claim_id"])
             except (ClaimNotFound, ClaimsServiceUnavailable) as exc:
                 logger.info("refusal without claim details (%s)", exc.__class__.__name__)
-        message = _refusal_with_claim(claim) if claim else REFUSAL_GENERIC
+        if claim:
+            message = _refusal_with_claim(claim, kind)
+        else:
+            message = APPEAL_REFUSAL_GENERIC if kind == "appeal" else REFUSAL_GENERIC
         return {
             "outcome": "refused",
-            "reason": "decision_request",
+            "reason": "appeal_outcome_request" if kind == "appeal" else "decision_request",
             "message": message,
             "claim": claim,
         }

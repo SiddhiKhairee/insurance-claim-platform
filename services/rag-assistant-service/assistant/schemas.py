@@ -6,9 +6,9 @@ Response contract:
                       groundedness gate; for "refused"/"abstained" it is deterministic text,
                       never generated text.
   reason              null when answered; otherwise a machine-readable code
-                      (decision_request, no_grounded_answer, insufficient_context,
-                      no_relevant_context, claim_not_found, claims_service_unavailable,
-                      retrieval_error)
+                      (decision_request, appeal_outcome_request, no_grounded_answer,
+                      insufficient_context, no_relevant_context, claim_not_found,
+                      claims_service_unavailable, retrieval_error)
   provider            which LLM produced the answer ("groq" | "gemini"); null when the
                       guardrail refused or no provider produced an accepted answer
   groundedness_score  NLI score (min over answer sentences of the best entailment against any
@@ -19,8 +19,10 @@ Response contract:
                       LLM-claimed). Tagged union:
                         {source: "policy", docId, planType, section, score}
                         {source: "claim", claimId}
-  claim               narrow claim summary (only status/planType/amountRequested/
-                      decisionReason/ruleTrace) when a claimId was supplied and readable
+  claim               narrow claim summary (only status/displayStatus/planType/amountRequested/
+                      decisionReason/ruleTrace, plus appeal {status, submittedOn, decidedOn})
+                      when a claimId was supplied and readable. Never the appeal's reviewer
+                      note, documents, or document references.
 """
 
 from typing import Annotated, Literal
@@ -50,13 +52,21 @@ class ClaimCitation(BaseModel):
 Citation = Annotated[PolicyCitation | ClaimCitation, Field(discriminator="source")]
 
 
+class AppealSummary(BaseModel):
+    status: str
+    submittedOn: str | None = None
+    decidedOn: str | None = None
+
+
 class ClaimSummary(BaseModel):
     claimId: str
     status: str | None = None
+    displayStatus: str | None = None
     planType: str | None = None
     amountRequested: float | None = None
     decisionReason: str | None = None
     ruleTrace: list[str] = Field(default_factory=list)
+    appeal: AppealSummary | None = None
 
 
 class AskResponse(BaseModel):

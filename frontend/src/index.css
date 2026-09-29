@@ -273,3 +273,147 @@ body {
   font-size: 0.85rem;
   text-transform: capitalize;
 }
+
+/* Phase 8b: routing, appeals and the admin panel. */
+.home-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+a.btn {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.status-badge.status-approved_on_appeal {
+  background: var(--approved-bg);
+  color: var(--approved);
+}
+
+.decision-heading {
+  font-weight: 600;
+  margin: 1rem 0 0;
+}
+
+.appeal-block {
+  border-top: 1px solid var(--border);
+  margin-top: 1.25rem;
+  padding-top: 0.75rem;
+}
+
+.appeal-block p {
+  margin: 0.4rem 0;
+}
+
+.appeal-block .status-meta {
+  margin: 0.25rem 0;
+}
+
+.reviewer-note,
+.quoted-text {
+  background: var(--bg);
+  border-left: 3px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.appeal-form {
+  border-top: 1px solid var(--border);
+  margin-top: 1.25rem;
+  padding-top: 0.75rem;
+}
+
+.field-hint {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin: 0.3rem 0 0;
+}
+
+.note-visible {
+  color: var(--pending);
+  font-weight: 600;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.form-footer {
+  margin: 1rem 0 0;
+}
+
+.admin-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.9rem;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 0.5rem 0.4rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.admin-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.review-section {
+  border-top: 1px solid var(--border);
+  margin-top: 1.25rem;
+  padding-top: 0.5rem;
+}
+
+.review-section h3 {
+  margin: 0.5rem 0;
+}
+
+.document-list {
+  padding-left: 1.1rem;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+
+.radio-group {
+  border: none;
+  padding: 0;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: normal;
+  margin-top: 0.35rem;
+}
+
+.radio-group input {
+  width: auto;
+}

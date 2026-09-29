@@ -1,4 +1,5 @@
-"""Deterministic guardrail: refuses requests to make an adjudication decision.
+"""Deterministic guardrail: refuses requests to make an adjudication decision, and requests to
+predict or recommend an appeal outcome (appeals are decided by a human reviewer).
 
 No LLM, and the decision is made from the question text alone (no network calls). Adjudication
 is rule-based (CLAUDE.md); this assistant explains decisions and answers policy questions only.
@@ -16,7 +17,7 @@ import re
 from dataclasses import dataclass
 
 _VERB = (
-    r"(?:approve|deny|reject|decline|overturn|override|overrule|reverse|adjudicate|"
+    r"(?:approve|deny|reject|decline|overturn|uphold|override|overrule|reverse|adjudicate|"
     r"authorize|authorise|pay out|payout|settle)"
 )
 _OBJECT = (
@@ -70,10 +71,42 @@ _UNLESS_EXPLANATION = [
 ]
 
 
+# Appeal-outcome rules (Phase 8b). An appeal is decided by a human reviewer; the assistant may
+# report a recorded outcome but never predicts or recommends one. These apply even to
+# wh-/explain questions, because "what are the chances my appeal succeeds?" is still a
+# prediction. "What happened to my appeal?" / "why was my appeal overturned?" stay allowed.
+_LIKELIHOOD = r"(?:chances?|odds|likel(?:y|ihood)|probab(?:le|ly|ility)|prospects?)"
+_APPEAL_OUTCOME = [
+    re.compile(rf"\b{_LIKELIHOOD}\b.{{0,60}}\bappeal"),
+    re.compile(rf"\bappeal\w*\b.{{0,60}}\b{_LIKELIHOOD}\b"),
+    # "will my appeal be approved", "would the appeal succeed", "could this appeal get upheld"
+    re.compile(
+        r"\b(?:will|would|could|should|can|must)\b.{0,30}\bappeal\s+"
+        r"(?:be|get|succeed|win|work|pass|go through)\b"
+    ),
+    # "is my appeal going to be approved", "my appeal is gonna fail"
+    re.compile(r"\bappeal\b.{0,20}\b(?:going to|gonna)\b"),
+    re.compile(r"\b(?:win|lose)\s+(?:my|our|the|this|that|an?)\s+appeal\b"),
+    # Asking what the reviewer should do: "should the admin overturn this?",
+    # "what should the reviewer decide on my appeal?"
+    re.compile(
+        r"\b(?:should|will|would|could|must|can)\s+(?:the\s+|an?\s+|my\s+)?"
+        r"(?:admin|administrator|reviewer|human reviewer|appeals? (?:team|reviewer))\s+"
+        r"(?:\w+\s+){0,2}?(?:uphold|overturn|approve|deny|reject|grant|decide|side)\b"
+    ),
+    re.compile(
+        r"\b(?:good|strong|weak|solid|winning)\s+(?:case|grounds|chance)\b.{0,40}\bappeal"
+    ),
+]
+
+
 @dataclass(frozen=True)
 class GuardrailDecision:
     refuse: bool
     matched_rule: str | None = None
+    # "decision" (asks the assistant to make/predict an adjudication decision) or "appeal"
+    # (asks it to predict or recommend an appeal outcome); None when not refused.
+    kind: str | None = None
 
 
 def _normalize(question: str) -> str:
@@ -83,12 +116,15 @@ def _normalize(question: str) -> str:
 
 def check_question(question: str) -> GuardrailDecision:
     text = _normalize(question)
+    for rule in _APPEAL_OUTCOME:
+        if rule.search(text):
+            return GuardrailDecision(True, rule.pattern, "appeal")
     for rule in _ALWAYS:
         if rule.search(text):
-            return GuardrailDecision(True, rule.pattern)
+            return GuardrailDecision(True, rule.pattern, "decision")
     if _EXPLANATION_START.match(text):
         return GuardrailDecision(False)
     for rule in _UNLESS_EXPLANATION:
         if rule.search(text):
-            return GuardrailDecision(True, rule.pattern)
+            return GuardrailDecision(True, rule.pattern, "decision")
     return GuardrailDecision(False)

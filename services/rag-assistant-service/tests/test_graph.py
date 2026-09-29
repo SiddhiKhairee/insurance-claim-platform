@@ -15,7 +15,7 @@ from fakes import (
 )
 
 from assistant.claims_client import ClaimNotFound, ClaimsServiceUnavailable, HttpClaimsClient
-from assistant.graph import ABSTAIN_MESSAGE, REFUSAL_GENERIC
+from assistant.graph import ABSTAIN_MESSAGE, APPEAL_REFUSAL_GENERIC, REFUSAL_GENERIC
 from assistant.llm import INSUFFICIENT_CONTEXT
 
 QUESTION = "What is the maximum benefit for a dental claim?"
@@ -180,6 +180,7 @@ class TestGuardrailNode:
         assert "amount exceeds plan limit" in response.answer
         assert "plan-limit check: failed" in response.answer
         assert response.claim.status == "DENIED"
+        assert response.reason == "decision_request"
 
     @pytest.mark.parametrize(
         "error",
@@ -302,6 +303,87 @@ class TestPromptInjectionBoundary:
         for expected in ("DENIED", "dental", "$2,500.00", "amount exceeds plan limit",
                          "plan-limit check: failed"):
             assert expected in prompt
+
+
+class TestAppealBoundaries:
+    """Phase 8b: the assistant reports a recorded appeal outcome, engine decision first, and never
+    predicts one. It never sees the reviewer note or any document reference."""
+
+    NOTE = "Reviewer note: receipts confirm the procedure was medically necessary."
+
+    def claims_with_appeal(self, status, display_status):
+        payload = {
+            "claimId": "claim-1",
+            "planType": "dental",
+            "amountRequested": 2500.0,
+            "status": "DENIED",
+            "displayStatus": display_status,
+            "decisionReason": "amount exceeds plan limit",
+            "ruleTrace": ["plan-limit check: failed"],
+            "appeal": {
+                "status": status,
+                "submittedAt": "2026-09-28T10:00:00Z",
+                "decidedAt": None if status == "PENDING_REVIEW" else "2026-09-29T15:30:00Z",
+                "reviewerNote": None if status == "PENDING_REVIEW" else self.NOTE,
+                "documentCount": 2,
+            },
+        }
+        return HttpClaimsClient(
+            "http://claims",
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload)),
+        )
+
+    def test_appeal_prediction_is_refused_without_retrieval_or_llm(self):
+        groq = provider("groq")
+        store = FakeStore()
+        assistant, _ = make_assistant(providers=[groq], store=store)
+
+        response = assistant.ask("What are the chances my appeal gets approved?")
+
+        assert response.outcome == "refused"
+        assert response.reason == "appeal_outcome_request"
+        assert response.answer == APPEAL_REFUSAL_GENERIC
+        assert (store.calls, groq.prompts) == ([], [])
+
+    def test_appeal_refusal_quotes_engine_decision_then_recorded_human_outcome(self):
+        claims = self.claims_with_appeal("OVERTURNED", "APPROVED_ON_APPEAL")
+        assistant, _ = make_assistant(providers=[provider()], claims=claims)
+
+        response = assistant.ask("Should the admin overturn this?", claim_id="claim-1")
+
+        assert response.reason == "appeal_outcome_request"
+        answer = response.answer
+        assert answer.startswith("I don't predict or decide appeals")
+        assert answer.index("status DENIED") < answer.index("a human reviewer overturned")
+        assert self.NOTE not in answer
+        assert response.claim.displayStatus == "APPROVED_ON_APPEAL"
+        assert response.claim.appeal.status == "OVERTURNED"
+
+    def test_pending_appeal_refusal_states_no_outcome_is_recorded(self):
+        claims = self.claims_with_appeal("PENDING_REVIEW", "DENIED")
+        assistant, _ = make_assistant(providers=[provider()], claims=claims)
+
+        response = assistant.ask("Will my appeal be approved?", claim_id="claim-1")
+
+        assert response.outcome == "refused"
+        assert "pending human review and no appeal outcome has been recorded" in response.answer
+
+    def test_explanation_prompt_carries_the_recorded_outcome_but_not_the_note(self):
+        claims = self.claims_with_appeal("UPHELD", "DENIED")
+        groq = provider("groq", "The plan-limit check failed because the amount exceeds the limit.")
+        nli = FakeNLI()
+        assistant, _ = make_assistant(providers=[groq], claims=claims, nli=nli)
+
+        response = assistant.ask("What happened to my appeal?", claim_id="claim-1")
+
+        prompt = " ".join(groq.prompts[0])
+        premises_seen_by_nli = " ".join(premise for premise, _ in nli.pairs)
+        assert "a human reviewer upheld the rule engine's decision on appeal" in prompt
+        assert "never predict" in groq.prompts[0][0]
+        for leaked in (self.NOTE, "medically necessary", "documentCount"):
+            assert leaked not in prompt
+            assert leaked not in premises_seen_by_nli
+            assert leaked not in response.model_dump_json()
 
 
 def test_dental_exclusions_fixture_is_distinct():

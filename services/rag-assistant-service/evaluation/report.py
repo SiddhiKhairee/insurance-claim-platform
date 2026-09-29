@@ -78,7 +78,8 @@ def main(argv: list[str] | None = None) -> int:
     retrieval_meta, retrieval = read_run_file(args.retrieval)
     all_rows = load_eval_set(DEFAULT_EVAL_PATH)
     rows = {r.id: r for r in all_rows if r.split == "heldout"}
-    reviews = load_reviews(args.reviews)
+    # Only reviews written for this run file's answers apply.
+    reviews = load_reviews(args.reviews, source=args.final.name)
 
     runs: dict[int, list[dict]] = {}
     for record in records:

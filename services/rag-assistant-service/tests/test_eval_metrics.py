@@ -15,6 +15,7 @@ from evaluation.metrics import (
     top1_hit,
     wilson_interval,
 )
+from evaluation.runfiles import load_reviews
 
 
 def test_normalize_reduces_amount_formats_to_digits():
@@ -144,6 +145,18 @@ def test_hand_review_overrides_the_script_verdict():
     records = [_record("a", "answered", "It pays $3,000.", score=0.9, first_score=0.9)]
     assert score_run(records, rows, {})["answer_correctness"] == Rate(0, 1)
     assert score_run(records, rows, {("a", 1): "correct"})["answer_correctness"] == Rate(1, 1)
+
+
+def test_hand_reviews_apply_only_to_the_run_file_they_were_written_for(tmp_path):
+    path = tmp_path / "reviews.jsonl"
+    path.write_text(
+        '{"id": "a", "run": 1, "source": "old-run.jsonl", "verdict": "correct"}\n'
+        '{"id": "b", "run": 1, "source": "new-run.jsonl", "verdict": "incorrect"}\n',
+        encoding="utf-8",
+    )
+    assert load_reviews(path, source="new-run.jsonl") == {("b", 1): "incorrect"}
+    assert load_reviews(path, source="old-run.jsonl") == {("a", 1): "correct"}
+    assert len(load_reviews(path)) == 2  # unfiltered, as before
 
 
 def test_abstaining_on_an_in_scope_question_is_incorrect():

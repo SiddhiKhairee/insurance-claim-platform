@@ -31,14 +31,21 @@ def read_run_file(path: Path) -> tuple[dict, list[dict]]:
     return lines[0]["_meta"], lines[1:]
 
 
-def load_reviews(path: Path = REVIEWS_PATH) -> Reviews:
-    """Hand-review verdicts overriding the key-fact script: {(row id, run): correct|incorrect}."""
+def load_reviews(path: Path = REVIEWS_PATH, source: str | None = None) -> Reviews:
+    """Hand-review verdicts overriding the key-fact script: {(row id, run): correct|incorrect}.
+
+    A review judges one specific answer, so it belongs to the run file named in its `source`.
+    Pass `source` (a run file's name) to get only that file's reviews; otherwise a later run
+    that reuses the same (row id, run) keys would silently inherit verdicts about different
+    answers (found 2026-09-28 when re-running the eval for Phase 8b Part 2)."""
     if not path.exists():
         return {}
     reviews: Reviews = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
             raw = json.loads(line)
+            if source is not None and raw.get("source") != source:
+                continue
             if raw["verdict"] not in ("correct", "incorrect"):
                 raise ValueError(f"review {raw}: verdict must be correct or incorrect")
             reviews[(raw["id"], int(raw["run"]))] = raw["verdict"]

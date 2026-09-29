@@ -69,7 +69,10 @@ def test_claim_id_is_passed_through_and_claim_summary_returned():
     assert body["claim"]["status"] == "DENIED"
     assert set(body["claim"]) == {
         "claimId", "status", "planType", "amountRequested", "decisionReason", "ruleTrace",
+        # Phase 8b: recorded appeal status/dates only (null here: this claim has no appeal).
+        "displayStatus", "appeal",
     }
+    assert body["claim"]["appeal"] is None
 
 
 def test_request_validation():

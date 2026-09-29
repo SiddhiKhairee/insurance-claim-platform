@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { askAssistant } from './api.js'
+import { APPEAL_STATUS_LABELS } from './format.js'
 
 const MAX_QUESTION_LENGTH = 1000 // mirrors the RAG service's request validation
 const CLAIM_ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/
@@ -43,13 +44,23 @@ function AssistantResult({ result }) {
   if (outcome === 'refused') {
     return (
       <div role="status" className="assistant-result assistant-refused" data-outcome="refused">
-        <p className="assistant-result-title">Decisions come from the rule engine</p>
+        <p className="assistant-result-title">
+          {reason === 'appeal_outcome_request'
+            ? 'Appeals are decided by a human reviewer'
+            : 'Decisions come from the rule engine'}
+        </p>
         <p>{answer}</p>
         {claim && (
           <div>
             <span className={`status-badge status-${String(claim.status).toLowerCase()}`}>
               {claim.status}
             </span>
+            {claim.appeal && (
+              <span className="status-meta appeal-inline">
+                {' '}
+                Appeal: {APPEAL_STATUS_LABELS[claim.appeal.status] || claim.appeal.status}
+              </span>
+            )}
             {claim.ruleTrace?.length > 0 && (
               <ul className="rule-trace">
                 {claim.ruleTrace.map((rule) => (

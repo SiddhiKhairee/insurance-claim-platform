@@ -1,36 +1,40 @@
-import { useState } from 'react'
-import AssistantWidget from './AssistantWidget.jsx'
-import ClaimForm from './ClaimForm.jsx'
-import ClaimStatus from './ClaimStatus.jsx'
+import { Link, Navigate, Route, Routes } from 'react-router-dom'
+import AdminAppealReview from './admin/AdminAppealReview.jsx'
+import AdminAppealsList from './admin/AdminAppealsList.jsx'
+import { AdminLogin, AdminSignup } from './admin/AdminAuthPages.jsx'
+import { AdminLayout, RequireAdmin } from './admin/RequireAdmin.jsx'
+import ClaimPage from './ClaimPage.jsx'
+import HomePage from './HomePage.jsx'
 
+// Routing lives here; the router itself is created in main.jsx (BrowserRouter) so tests can use
+// a MemoryRouter. In production nginx serves index.html for any path that isn't an API route,
+// so these URLs survive a refresh; the admin API is under /api/admin, never /admin.
 function App() {
-  const [submittedClaim, setSubmittedClaim] = useState(null)
-
   return (
     <main className="app">
       <header className="app-header">
-        <h1>Group Claims Pipeline</h1>
+        <h1>
+          <Link to="/" className="home-link">
+            Group Claims Pipeline
+          </Link>
+        </h1>
         <p>Synthetic data only — portfolio project.</p>
       </header>
 
-      <div className="card">
-        {submittedClaim ? (
-          <>
-            <ClaimStatus claimId={submittedClaim.claimId} />
-            <div className="actions">
-              <button className="btn btn-secondary" onClick={() => setSubmittedClaim(null)}>
-                Submit another claim
-              </button>
-            </div>
-          </>
-        ) : (
-          <ClaimForm onSubmitted={setSubmittedClaim} />
-        )}
-      </div>
-
-      <div className="card">
-        <AssistantWidget claimId={submittedClaim?.claimId} />
-      </div>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/claims/:claimId" element={<ClaimPage />} />
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin/signup" element={<AdminSignup />} />
+        <Route path="/admin" element={<RequireAdmin />}>
+          <Route element={<AdminLayout />}>
+            <Route index element={<Navigate to="/admin/appeals" replace />} />
+            <Route path="appeals" element={<AdminAppealsList />} />
+            <Route path="appeals/:claimId" element={<AdminAppealReview />} />
+          </Route>
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </main>
   )
 }
